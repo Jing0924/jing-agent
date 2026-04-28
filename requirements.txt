@@ -1,0 +1,11 @@
+# Direct deps (pinned). For full reproducibility including transitive deps, use: pip install -r requirements-lock.txt
+chromadb==1.5.8
+langchain==1.2.15
+langchain-classic==1.0.4
+langchain-community==0.4.1
+langchain-core==1.3.2
+langchain-google-genai==4.2.2
+langchain-text-splitters==1.1.2
+python-dotenv==1.2.2
+fastapi==0.115.12
+uvicorn[standard]==0.34.2

@@ -1,0 +1,6 @@
+.chroma/
+frontend/node_modules/
+frontend/dist/
+.env
+__pycache__/
+*.py[cod]
