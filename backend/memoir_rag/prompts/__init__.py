@@ -1,3 +1,3 @@
-from learn_langchain.prompts.resume import SYSTEM
+from memoir_rag.prompts.resume import SYSTEM
 
 __all__ = ["SYSTEM"]

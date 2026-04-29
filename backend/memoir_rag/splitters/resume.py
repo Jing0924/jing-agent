@@ -5,7 +5,7 @@ from __future__ import annotations
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from learn_langchain.config import CHUNK_OVERLAP, CHUNK_SIZE
+from memoir_rag.config import CHUNK_OVERLAP, CHUNK_SIZE
 
 
 def split_resume(docs: list[Document]) -> list[Document]:

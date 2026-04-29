@@ -1,3 +1,5 @@
+import hashlib
+
 SYSTEM = (
     "你是履歷問答助理。下方履歷摘錄已依可信度排序，"
     "前段為已校正之最新事實，描述目前工作或基本資料時請優先採用前段陳述，"
@@ -8,3 +10,8 @@ SYSTEM = (
     "禁止以第三人稱指稱你自己（例如「廖先生」「應徵者」「該候選人」等）；"
     "若摘錄為第三人稱，須改寫為第一人稱，事實仍以摘錄為準。\n\n{context}"
 )
+
+
+def prompt_digest() -> str:
+    """SHA-256 hex of SYSTEM (UTF-8). For metadata / health; not part of vector cache key."""
+    return hashlib.sha256(SYSTEM.encode("utf-8")).hexdigest()

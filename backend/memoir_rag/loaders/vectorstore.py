@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 
-from learn_langchain.config import CHUNK_OVERLAP, CHUNK_SIZE, EMBEDDING_MODEL, PERSIST_DIR
+from memoir_rag.config import CHUNK_OVERLAP, CHUNK_SIZE, EMBEDDING_MODEL, PERSIST_DIR
 
 if TYPE_CHECKING:
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -20,7 +20,7 @@ COLLECTION = "resume"
 
 
 def compute_fingerprint(
-    resume_bytes: bytes,
+    content_bytes: bytes,
     chunk_size: int,
     chunk_overlap: int,
     embedding_model: str,
@@ -28,7 +28,7 @@ def compute_fingerprint(
     override_title: str,
 ) -> str:
     h = hashlib.sha256()
-    h.update(resume_bytes)
+    h.update(content_bytes)
     h.update(b"\0")
     h.update(str(chunk_size).encode())
     h.update(b"\0")
@@ -46,12 +46,14 @@ def build_or_load_chroma(
     documents: list[Document],
     embeddings: GoogleGenerativeAIEmbeddings,
     fingerprint: str,
+    prompt_digest: str,
 ) -> Chroma:
     persist_dir = Path(PERSIST_DIR)
     fp_path = persist_dir / "fingerprint.json"
 
     record: dict[str, object] = {
         "fingerprint": fingerprint,
+        "prompt_sha256": prompt_digest,
         "embedding_model": EMBEDDING_MODEL,
         "chunk_size": CHUNK_SIZE,
         "chunk_overlap": CHUNK_OVERLAP,
@@ -62,6 +64,15 @@ def build_or_load_chroma(
         try:
             existing = json.loads(fp_path.read_text(encoding="utf-8"))
             if existing.get("fingerprint") == fingerprint:
+                merged = dict(existing)
+                merged["prompt_sha256"] = prompt_digest
+                merged.setdefault("embedding_model", EMBEDDING_MODEL)
+                merged.setdefault("chunk_size", CHUNK_SIZE)
+                merged.setdefault("chunk_overlap", CHUNK_OVERLAP)
+                merged.setdefault("collection", COLLECTION)
+                fp_path.write_text(
+                    json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
                 return Chroma(
                     persist_directory=str(persist_dir),
                     embedding_function=embeddings,
