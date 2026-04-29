@@ -1,6 +1,9 @@
 .chroma/
+backend/.chroma/
 frontend/node_modules/
 frontend/dist/
 .env
+backend/.env
 __pycache__/
 *.py[cod]
+.cursor*
