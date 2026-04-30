@@ -16,17 +16,17 @@ export function useAskStream(health: HealthPayload | undefined) {
   const [error, setError] = useState<string | null>(null)
   const [streamMeta, setStreamMeta] = useState<StreamMeta | null>(null)
 
-  const handleSubmit = useCallback(
-    async (e: FormEvent) => {
-      e.preventDefault()
+  const runStreamForQuestion = useCallback(
+    async (q: string) => {
       setError(null)
       setAnswer('')
       setStreamMeta(null)
+      setQuestion(q)
       setLoading(true)
       try {
         let acc = ''
         await consumeAskStream(
-          question,
+          q,
           (meta) => {
             const ef =
               typeof meta.embeddingFingerprint === 'string'
@@ -51,7 +51,22 @@ export function useAskStream(health: HealthPayload | undefined) {
         setLoading(false)
       }
     },
-    [question, health],
+    [health],
+  )
+
+  const handleSubmit = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault()
+      await runStreamForQuestion(question)
+    },
+    [question, runStreamForQuestion],
+  )
+
+  const askWithText = useCallback(
+    (text: string) => {
+      void runStreamForQuestion(text)
+    },
+    [runStreamForQuestion],
   )
 
   return {
@@ -62,5 +77,6 @@ export function useAskStream(health: HealthPayload | undefined) {
     error,
     streamMeta,
     handleSubmit,
+    askWithText,
   }
 }

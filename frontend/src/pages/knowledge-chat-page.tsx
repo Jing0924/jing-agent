@@ -11,6 +11,14 @@ import { useAskStream } from '@/hooks/use-ask-stream'
 import { useHealth } from '@/hooks/use-health'
 import { cn } from '@/lib/utils'
 
+const INTERVIEW_QUICK_QUESTIONS = [
+  '請用一小段話自我介紹（背景與目前狀態）。',
+  '最近一份工作／現職主要職責與成果？',
+  '印象最深或最有代表性的專案？',
+  '熟悉的技術、工具或證照？',
+  '學歷與相關訓練？',
+] as const
+
 function KnowledgeChatPage() {
   const { data: health, isError, isFetching, refetch } = useHealth()
   const healthError = isError
@@ -23,6 +31,7 @@ function KnowledgeChatPage() {
     loading,
     error,
     handleSubmit,
+    askWithText,
   } = useAskStream(health)
 
   const ready = health?.ready === true
@@ -111,6 +120,39 @@ function KnowledgeChatPage() {
             </Button>
           </div>
         </form>
+      </section>
+
+      <section
+        className="space-y-2"
+        aria-labelledby="interview-quick-heading"
+      >
+        <div>
+          <h2
+            id="interview-quick-heading"
+            className="font-heading text-base font-medium text-card-foreground"
+          >
+            常見問題
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            點一下即送出；回答僅依知識庫內容，未收錄的項目會如實說明。
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {INTERVIEW_QUICK_QUESTIONS.map((qPreset) => (
+            <Button
+              key={qPreset}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-auto max-w-full shrink-0 whitespace-normal py-2 text-left text-sm leading-snug"
+              disabled={loading || !ready}
+              aria-label={qPreset}
+              onClick={() => askWithText(qPreset)}
+            >
+              {qPreset}
+            </Button>
+          ))}
+        </div>
       </section>
 
       {error && (

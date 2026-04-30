@@ -21,6 +21,25 @@ class CalendarFromTextBody(BaseModel):
 
 class CalendarStatusResponse(BaseModel):
     configured: bool
+    """IANA timezone used for NLP defaults and listing bounds (see config)."""
+
+    default_timezone: str
+
+
+class CalendarEventListItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    id: str
+    summary: str
+    start: str
+    end: str
+    location: str = ""
+    html_link: str = Field(default="", serialization_alias="htmlLink")
+
+
+class CalendarEventsListResponse(BaseModel):
+    timezone: str
+    events: list[CalendarEventListItem]
 
 
 class CalendarEventCreatedResponse(BaseModel):
