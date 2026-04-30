@@ -9,3 +9,10 @@ langchain-text-splitters==1.1.2
 python-dotenv==1.2.2
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
+google-api-python-client==2.164.0
+# google-genai (via langchain-google-genai) requires google-auth>=2.47; 2.38 conflicts.
+google-auth==2.49.2
+google-auth-oauthlib==1.2.1
+# One api-core/protobuf line for Calendar API + GenAI (stops pip backtracking).
+google-api-core==2.30.3
+protobuf>=4.25.0,<7.0.0

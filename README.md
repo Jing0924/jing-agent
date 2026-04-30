@@ -37,6 +37,16 @@ GOOGLE_API_KEY=你的金鑰
 | `RESUME_JOB_TITLE_OVERRIDE` | 覆寫顯示的職稱 |
 | `MEMOIR_CORS_ORIGINS` 或 `CORS_ALLOW_ORIGINS` | 逗號分隔的瀏覽器來源（CORS）；未設定時預設為本機 Vite `http://localhost:5173`、`http://127.0.0.1:5173` |
 
+**Google 行事曆（選用，與 Gemini 金鑰分開）**：在 Cloud Console 啟用 Calendar API、建立 OAuth **桌面應用程式**，於 `.env` 設定 `GOOGLE_CALENDAR_CLIENT_ID`、`GOOGLE_CALENDAR_CLIENT_SECRET`，再於 `backend/` 執行 `python scripts/oauth_google_calendar.py` 取得並貼上 `GOOGLE_CALENDAR_REFRESH_TOKEN`（請勿提交至 git）。
+
+| 變數 | 說明 |
+|------|------|
+| `GOOGLE_CALENDAR_CLIENT_ID` | OAuth Desktop client ID |
+| `GOOGLE_CALENDAR_CLIENT_SECRET` | OAuth client secret |
+| `GOOGLE_CALENDAR_REFRESH_TOKEN` | 由上列腳本取得 |
+| `CALENDAR_DEFAULT_TIMEZONE` | 解析相對日期時的錨點時區（IANA）；預設 `Asia/Taipei` |
+| `CALENDAR_DEFAULT_DURATION_MINUTES` | 使用者未指明結束時間時的事件長度（分鐘）；預設 `60` |
+
 知識庫可採**多檔 Markdown**：若 **`backend/knowledge/` 下（含子目錄）至少有一份 `.md`**，則載入該目錄樹下所有 `.md`（依路徑排序）；否則退回單檔 **`backend/resume.md`**。每份文件第一個 `---` 之前可作為「開頭摘要」加權區段。向量索引會持久化到 **`backend/.chroma/resume/`**（已列於 `.gitignore`）。
 
 ---
@@ -77,6 +87,8 @@ uvicorn memoir_rag.api_app:app --reload --host 127.0.0.1 --port 8000
 | `GET /health` 或 `GET /api/health` | 健康檢查，HTTP 通常為 **200**。Body：`status`（`ok` 或 `degraded`）、`ready`、`error`；就緒時另有 `embedding_fingerprint`、`prompt_sha256`、`llm_model`（與 OpenAPI `HealthResponse` 一致）。建鏈失敗時仍為 200，但 `status: degraded`、`ready: false` 並附 `error`。 |
 | `POST /api/ask` | Body：`{"question": "..."}`，回傳：`{"answer": "..."}` |
 | `POST /api/ask/stream` | 同上問題，**SSE**（`text/event-stream`）：先 `event: meta`（`embeddingFingerprint`、`promptSha256`、`llmModel`），再多次 `event: token`（`{"text": "..."}`），錯誤時 `event: error`。前端優先使用；舊後端無此路由時會改打 `/api/ask`。 |
+| `GET /api/calendar/status` | 回傳 `{"configured": true|false}`（已設定 OAuth client id/secret + refresh token），不含任何密鑰。 |
+| `POST /api/calendar/events/from-text` | Body：`{"text":"明天下午一點吃飯"}`。Gemini 解析後寫入 Google 行事曆 `primary`；成功回傳 `id`、`htmlLink`、`summary`、`start`、`end`。未設定行事曆憑證時通常為 **503**；解析錯誤 **400**；Calendar API 錯誤 **502**。此路由不依賴 RAG 鏈是否就緒。 |
 
 啟動 API 後可開 **OpenAPI 介面**：`http://127.0.0.1:8000/docs`。
 

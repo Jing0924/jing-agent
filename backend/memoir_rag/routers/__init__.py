@@ -1,3 +1,3 @@
-from memoir_rag.routers import ask, health
+from memoir_rag.routers import ask, calendar, health
 
-__all__ = ["ask", "health"]
+__all__ = ["ask", "calendar", "health"]

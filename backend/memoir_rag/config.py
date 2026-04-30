@@ -57,6 +57,28 @@ def cors_allow_origins() -> list[str]:
     ]
 
 
+def calendar_default_timezone() -> str:
+    return (os.environ.get("CALENDAR_DEFAULT_TIMEZONE") or "Asia/Taipei").strip() or "Asia/Taipei"
+
+
+def calendar_default_duration_minutes() -> int:
+    raw = os.environ.get("CALENDAR_DEFAULT_DURATION_MINUTES") or "60"
+    try:
+        n = int(str(raw).strip())
+    except ValueError:
+        return 60
+    return max(1, min(n, 24 * 60))
+
+
+def google_calendar_oauth_configured() -> bool:
+    """True when client credentials and refresh token are set (server-side OAuth)."""
+
+    cid = (os.environ.get("GOOGLE_CALENDAR_CLIENT_ID") or "").strip()
+    secret = (os.environ.get("GOOGLE_CALENDAR_CLIENT_SECRET") or "").strip()
+    refresh = (os.environ.get("GOOGLE_CALENDAR_REFRESH_TOKEN") or "").strip()
+    return bool(cid and secret and refresh)
+
+
 def resolve_knowledge_md_paths() -> list[Path]:
     """要向量化之 Markdown 路徑（穩定排序）。"""
     if KNOWLEDGE_DIR.is_dir():

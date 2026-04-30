@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from memoir_rag.chains.resume_rag import build_resume_rag_chain
 from memoir_rag.config import cors_allow_origins, load_env, resolve_knowledge_md_paths
 from memoir_rag.middleware.request_log import RequestLoggingMiddleware
-from memoir_rag.routers import ask, health
+from memoir_rag.routers import ask, calendar, health
 from memoir_rag.state import RagFailedState, RagReadyState
 
 logger = logging.getLogger(__name__)
@@ -54,3 +54,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(ask.router)
+app.include_router(calendar.router)

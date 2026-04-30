@@ -1,4 +1,5 @@
-import type { MouseEvent } from 'react'
+import type { FormEvent, MouseEvent } from 'react'
+import { useState } from 'react'
 
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 
@@ -8,11 +9,18 @@ import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AnswerMarkdown } from '@/components/markdown/answer-markdown'
 import { useAskStream } from '@/hooks/use-ask-stream'
+import { useCalendarStatus } from '@/hooks/use-calendar-status'
 import { useHealth } from '@/hooks/use-health'
+import { createCalendarEventFromText, type CalendarEventCreatedPayload } from '@/lib/api/calendar'
 import { cn } from '@/lib/utils'
 
 function ResumeChatPage() {
   const { data: health, isError, isFetching, refetch } = useHealth()
+  const {
+    data: calStatus,
+    isFetching: calStatusFetching,
+    refetch: refetchCalStatus,
+  } = useCalendarStatus()
   const healthError = isError
     ? '無法連線至後端（確認已執行 uvicorn 於 127.0.0.1:8000）。'
     : null
@@ -26,10 +34,36 @@ function ResumeChatPage() {
   } = useAskStream(health)
 
   const ready = health?.ready === true
+  const calendarReady = calStatus?.configured === true
+
+  const [calendarText, setCalendarText] = useState('')
+  const [calendarLoading, setCalendarLoading] = useState(false)
+  const [calendarError, setCalendarError] = useState<string | null>(null)
+  const [calendarCreated, setCalendarCreated] =
+    useState<CalendarEventCreatedPayload | null>(null)
 
   function onRefreshHealth(e: MouseEvent<HTMLButtonElement>) {
     e.preventDefault()
     void refetch()
+    void refetchCalStatus()
+  }
+
+  async function handleCalendarSubmit(ev: FormEvent<HTMLFormElement>) {
+    ev.preventDefault()
+    setCalendarError(null)
+    const t = calendarText.trim()
+    if (!t || !calendarReady) return
+    setCalendarLoading(true)
+    setCalendarCreated(null)
+    try {
+      const created = await createCalendarEventFromText(t)
+      setCalendarCreated(created)
+      setCalendarText('')
+    } catch (err) {
+      setCalendarError(err instanceof Error ? err.message : '無法建立行程')
+    } finally {
+      setCalendarLoading(false)
+    }
   }
 
   return (
@@ -78,6 +112,70 @@ function ResumeChatPage() {
 
       <section
         className="flex flex-col gap-2"
+        aria-labelledby="calendar-heading"
+      >
+        <h2
+          id="calendar-heading"
+          className="font-heading text-base font-medium text-card-foreground"
+        >
+          行程（自然語言）
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {calStatusFetching && !calStatus
+            ? '正在檢查 Google 行事曆設定…'
+            : calendarReady
+              ? '描述時間與內容，後端會用 Gemini 解析並寫入你的 Google 行事曆（primary）。'
+              : '尚未連結 Google 行事曆：請在 Google Cloud 啟用 Calendar API、建立 OAuth 桌面應用程式憑證，執行 backend/scripts/oauth_google_calendar.py 取得 refresh token，並寫入 .env。'}
+        </p>
+        <form className="flex flex-col gap-2" onSubmit={handleCalendarSubmit}>
+          <label className="text-sm font-medium text-card-foreground" htmlFor="cal-text">
+            行程描述
+          </label>
+          <Textarea
+            id="cal-text"
+            rows={2}
+            value={calendarText}
+            onChange={(e) => setCalendarText(e.target.value)}
+            placeholder="例如：明天下午1點在朵頤牛排吃飯"
+            disabled={calendarLoading || !calendarReady}
+            className="min-h-[3.5rem] text-base md:text-sm"
+          />
+          <Button
+            type="submit"
+            disabled={calendarLoading || !calendarReady}
+            size="lg"
+          >
+            {calendarLoading ? '建立中…' : '建立行程'}
+          </Button>
+        </form>
+        {calendarError && (
+          <Alert variant="destructive">
+            <AlertTitle>行事曆</AlertTitle>
+            <AlertDescription>{calendarError}</AlertDescription>
+          </Alert>
+        )}
+        {calendarCreated && (
+          <p className="text-sm text-card-foreground" role="status">
+            已建立「{calendarCreated.summary}」。
+            {calendarCreated.htmlLink ? (
+              <>
+                {' '}
+                <a
+                  href={calendarCreated.htmlLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary underline underline-offset-2"
+                >
+                  在 Google 行事曆開啟
+                </a>
+              </>
+            ) : null}
+          </p>
+        )}
+      </section>
+
+      <section
+        className="flex flex-col gap-2"
         aria-labelledby="question-heading"
       >
         <h2 id="question-heading" className="sr-only">
@@ -103,11 +201,11 @@ function ResumeChatPage() {
             <Button
               type="button"
               variant="outline"
-              disabled={isFetching}
+              disabled={isFetching || calStatusFetching}
               size="lg"
               onClick={onRefreshHealth}
             >
-              {isFetching ? '檢查中…' : '重新檢查服務'}
+              {isFetching || calStatusFetching ? '檢查中…' : '重新檢查服務'}
             </Button>
           </div>
         </form>
