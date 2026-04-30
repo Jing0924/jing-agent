@@ -72,6 +72,14 @@ export async function fetchCalendarEvents(params?: { from?: string; to?: string 
   return data as CalendarEventsPayload
 }
 
+export async function deleteCalendarEventById(eventId: string): Promise<void> {
+  const qs = new URLSearchParams()
+  qs.set('event_id', eventId)
+  const res = await fetch(`/api/calendar/events?${qs}`, { method: 'DELETE' })
+  const data: unknown = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(detailMessage(data))
+}
+
 function isFromTextPayload(x: unknown): x is CalendarFromTextPayload {
   if (!x || typeof x !== 'object') return false
   const r = (x as { result?: unknown }).result

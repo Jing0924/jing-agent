@@ -19,6 +19,7 @@ from memoir_rag.schemas.calendar import (
     CalendarStatusResponse,
 )
 from memoir_rag.services.calendar_google import (
+    CalendarEventNotFoundError,
     CalendarOAuthNotConfiguredError,
     delete_primary_event,
     event_bounds_utc,
@@ -121,6 +122,40 @@ def calendar_list_events(
     visible = [ev for ev in raw if ev.get("status") != "cancelled"]
     items = [_summarize_list_event(ev, tz_name) for ev in visible]
     return CalendarEventsListResponse(timezone=tz_name, events=items)
+
+
+@router.delete("/api/calendar/events", status_code=204)
+def calendar_delete_event(
+    event_id: str | None = Query(None, alias="event_id"),
+):
+    """Delete a single event from primary calendar by Google event id."""
+
+    load_env()
+    if not google_calendar_oauth_configured():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Google 行事曆尚未設定：請完成 OAuth 並在 .env 設定 "
+                "GOOGLE_CALENDAR_CLIENT_ID、GOOGLE_CALENDAR_CLIENT_SECRET、"
+                "GOOGLE_CALENDAR_REFRESH_TOKEN（勿提交至 git）。"
+            ),
+        )
+    if event_id is None or not event_id.strip():
+        raise HTTPException(status_code=400, detail="缺少或無效的 event_id。")
+
+    eid = event_id.strip()
+    try:
+        delete_primary_event(eid)
+    except CalendarEventNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="找不到該行程，或已被刪除。",
+        ) from None
+    except CalendarOAuthNotConfiguredError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except RuntimeError as e:
+        logger.exception("Google Calendar delete failed: %s", e)
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.post(
@@ -238,6 +273,11 @@ def _calendar_delete(q: DeleteQuery, tz_name: str) -> CalendarEventDeletedRespon
     summ = (ev.get("summary") or "").strip()
     try:
         delete_primary_event(eid)
+    except CalendarEventNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="找不到該行程，或已被刪除。",
+        ) from None
     except CalendarOAuthNotConfiguredError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except RuntimeError as e:

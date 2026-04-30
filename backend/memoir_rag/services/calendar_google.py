@@ -25,6 +25,10 @@ class CalendarOAuthNotConfiguredError(RuntimeError):
     pass
 
 
+class CalendarEventNotFoundError(RuntimeError):
+    """Google Calendar events.delete returned 404 (missing or already deleted)."""
+
+
 def _credentials() -> Credentials:
     if not google_calendar_oauth_configured():
         raise CalendarOAuthNotConfiguredError(
@@ -179,4 +183,6 @@ def delete_primary_event(event_id: str) -> None:
     try:
         svc.events().delete(calendarId="primary", eventId=event_id).execute()
     except HttpError as e:
+        if e.status_code == 404:
+            raise CalendarEventNotFoundError(event_id) from e
         raise RuntimeError(f"Google Calendar API error ({e.status_code}): {e}") from e

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useQueryClient } from '@tanstack/react-query'
 
-import { AlertTriangle, CheckCircle2, MapPin } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CircleAlert, MapPin, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -14,6 +14,7 @@ import { useHealth } from '@/hooks/use-health'
 import {
   CalendarApiError,
   CALENDAR_EVENTS_QUERY_KEY,
+  deleteCalendarEventById,
   submitCalendarFromText,
   type CalendarFromTextPayload,
 } from '@/lib/api/calendar'
@@ -63,6 +64,8 @@ function CalendarPage() {
     null,
   )
   const [calendarLastOk, setCalendarLastOk] = useState<CalendarFromTextPayload | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [listDeleteError, setListDeleteError] = useState<string | null>(null)
   const resultRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -71,9 +74,34 @@ function CalendarPage() {
 
   function onRefreshHealth(e: MouseEvent<HTMLButtonElement>) {
     e.preventDefault()
+    setListDeleteError(null)
     void refetch()
     void refetchCalStatus()
     void refetchUpcoming()
+  }
+
+  async function handleDeleteListEvent(row: {
+    id: string
+    summary: string
+    start: string
+    end: string
+  }) {
+    if (!row.id) return
+    const timeSummary = `${formatCalendarInstant(row.start, upcoming?.timezone ?? calStatus?.default_timezone ?? 'UTC')} — ${formatCalendarInstant(row.end, upcoming?.timezone ?? calStatus?.default_timezone ?? 'UTC')}`
+    const ok = window.confirm(
+      `確定要刪除「${row.summary}」嗎？\n${timeSummary}\n此動作無法復原。`,
+    )
+    if (!ok) return
+    setListDeleteError(null)
+    setDeletingId(row.id)
+    try {
+      await deleteCalendarEventById(row.id)
+      void queryClient.invalidateQueries({ queryKey: CALENDAR_EVENTS_QUERY_KEY })
+    } catch (err) {
+      setListDeleteError(err instanceof Error ? err.message : '無法刪除行程')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   async function handleCalendarSubmit(ev: FormEvent<HTMLFormElement>) {
@@ -112,21 +140,69 @@ function CalendarPage() {
 
   const err409 = calendarError?.status === 409
 
+  const helpNlpDetailed =
+    calStatusFetching && !calStatus
+      ? '正在檢查 Google 行事曆設定…'
+      : calendarReady
+        ? '描述建立或刪除（取消／拿掉等）說法，後端會用 Gemini 解析並寫入或刪除 Google 行事曆（primary）中的符合行程。'
+        : '尚未連結 Google 行事曆：請在 Google Cloud 啟用 Calendar API、建立 OAuth 桌面應用程式憑證，執行 backend/scripts/oauth_google_calendar.py 取得 refresh token，並寫入 .env。'
+
   return (
     <>
       <header className="space-y-3">
-        <h1 className="brand-heading-gradient font-heading text-3xl font-medium tracking-tight md:text-4xl">
-          Google 行事曆
-        </h1>
-        <p className="text-[0.95rem] text-muted-foreground">
-          用自然語言描述行程或刪除意圖（例如「刪掉明天下午的朵頤」），後端會解析並套用到你的
-          primary 行事曆。
-        </p>
-        {calStatus && (
-          <p className="text-xs text-muted-foreground" role="status">
-            解析與列表顯示時區：{timezoneLabel}
-          </p>
-        )}
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="brand-heading-gradient min-w-0 flex-1 font-heading text-3xl font-medium tracking-tight md:text-4xl">
+            Google 行事曆
+          </h1>
+          <details className="group relative shrink-0 pt-1">
+            <summary
+              aria-label="功能說明"
+              className={cn(
+                'flex cursor-pointer list-none items-center justify-center rounded-full p-1 text-muted-foreground',
+                'transition-colors hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+                '[&::-webkit-details-marker]:hidden',
+              )}
+            >
+              <CircleAlert className="size-4" aria-hidden />
+            </summary>
+            <div
+              className={cn(
+                'absolute right-0 z-10 mt-2 max-h-[min(70vh,32rem)] w-[min(calc(100vw-2rem),24rem)] overflow-y-auto',
+                'rounded-md border border-border/70 bg-muted/25 p-3 text-sm text-pretty text-muted-foreground shadow-sm',
+              )}
+              role="region"
+              aria-label="功能說明"
+            >
+              <div className="space-y-3 [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:text-card-foreground">
+                <div>
+                  <h3>此頁做什麼</h3>
+                  <p className="mt-1">
+                    用自然語言描述行程或刪除意圖（例如「刪掉明天下午的朵頤」），後端會解析並套用到你的
+                    primary 行事曆。
+                  </p>
+                </div>
+                {calStatus ? (
+                  <div>
+                    <h3>時區</h3>
+                    <p className="mt-1" role="status">
+                      解析與列表顯示時區：{timezoneLabel}
+                    </p>
+                  </div>
+                ) : null}
+                <div>
+                  <h3>未來七天列表</h3>
+                  <p className="mt-1">
+                    刪除前可對照標題與時間；資料來自 Google，與 NLP 時區設定一致。
+                  </p>
+                </div>
+                <div>
+                  <h3>自然語言輸入</h3>
+                  <p className="mt-1">{helpNlpDetailed}</p>
+                </div>
+              </div>
+            </div>
+          </details>
+        </div>
         {health && (
           <p
             className={cn(
@@ -180,19 +256,22 @@ function CalendarPage() {
               size="sm"
               className="h-8 shrink-0 text-muted-foreground"
               disabled={upcomingFetching}
-              onClick={() => void refetchUpcoming()}
+              onClick={() => {
+                setListDeleteError(null)
+                void refetchUpcoming()
+              }}
             >
               {upcomingFetching ? '更新中…' : '重新整理'}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            刪除前可對照標題與時間；資料來自 Google，與 NLP 時區設定一致。
-          </p>
           {upcomingError && (
             <p className="text-sm text-destructive">
               {upcomingError instanceof Error ? upcomingError.message : '無法載入行程'}
             </p>
           )}
+          {listDeleteError ? (
+            <p className="text-sm text-destructive">{listDeleteError}</p>
+          ) : null}
           {!upcomingFetching && upcoming && upcoming.events.length === 0 ? (
             <p className="text-sm text-muted-foreground">此區間尚無行程。</p>
           ) : null}
@@ -201,35 +280,50 @@ function CalendarPage() {
               {upcoming.events.map((row) => (
                 <li
                   key={row.id || `${row.summary}-${row.start}`}
-                  className="rounded-md border border-border/70 bg-muted/25 px-2.5 py-1.5"
+                  className="flex items-start justify-between gap-2 rounded-md border border-border/70 bg-muted/25 px-2.5 py-1.5"
                 >
-                  <div className="font-medium text-card-foreground">{row.summary}</div>
-                  <div
-                    className="text-xs text-muted-foreground"
-                    title={`${row.start} — ${row.end}`}
-                  >
-                    {formatCalendarInstant(row.start, upcoming.timezone)}
-                    {' — '}
-                    {formatCalendarInstant(row.end, upcoming.timezone)}
-                  </div>
-                  {row.location?.trim() ? (
-                    <div className="mt-0.5 flex items-start gap-1 text-xs text-muted-foreground">
-                      <MapPin
-                        className="mt-0.5 size-3 shrink-0 opacity-90"
-                        aria-hidden
-                      />
-                      <span className="min-w-0 break-words">{row.location.trim()}</span>
-                    </div>
-                  ) : null}
-                  {row.htmlLink ? (
-                    <a
-                      href={row.htmlLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 inline-block text-xs text-primary underline underline-offset-2"
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-card-foreground">{row.summary}</div>
+                    <div
+                      className="text-xs text-muted-foreground"
+                      title={`${row.start} — ${row.end}`}
                     >
-                      在 Google 開啟
-                    </a>
+                      {formatCalendarInstant(row.start, upcoming.timezone)}
+                      {' — '}
+                      {formatCalendarInstant(row.end, upcoming.timezone)}
+                    </div>
+                    {row.location?.trim() ? (
+                      <div className="mt-0.5 flex items-start gap-1 text-xs text-muted-foreground">
+                        <MapPin
+                          className="mt-0.5 size-3 shrink-0 opacity-90"
+                          aria-hidden
+                        />
+                        <span className="min-w-0 break-words">{row.location.trim()}</span>
+                      </div>
+                    ) : null}
+                    {row.htmlLink ? (
+                      <a
+                        href={row.htmlLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block text-xs text-primary underline underline-offset-2"
+                      >
+                        在 Google 開啟
+                      </a>
+                    ) : null}
+                  </div>
+                  {row.id ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 shrink-0 px-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`刪除「${row.summary}」`}
+                      disabled={deletingId === row.id}
+                      onClick={() => void handleDeleteListEvent(row)}
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                    </Button>
                   ) : null}
                 </li>
               ))}
@@ -242,19 +336,19 @@ function CalendarPage() {
         className="flex flex-col gap-2"
         aria-labelledby="calendar-heading"
       >
-        <h2
-          id="calendar-heading"
-          className="font-heading text-base font-medium text-card-foreground"
-        >
-          行程（自然語言）
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {calStatusFetching && !calStatus
-            ? '正在檢查 Google 行事曆設定…'
-            : calendarReady
-              ? '描述建立或刪除（取消／拿掉等）說法，後端會用 Gemini 解析並寫入或刪除 Google 行事曆（primary）中的符合行程。'
-              : '尚未連結 Google 行事曆：請在 Google Cloud 啟用 Calendar API、建立 OAuth 桌面應用程式憑證，執行 backend/scripts/oauth_google_calendar.py 取得 refresh token，並寫入 .env。'}
-        </p>
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h2
+            id="calendar-heading"
+            className="font-heading text-base font-medium text-card-foreground"
+          >
+            行程（自然語言）
+          </h2>
+          {calStatusFetching && !calStatus ? (
+            <span className="text-xs text-muted-foreground" role="status">
+              正在檢查…
+            </span>
+          ) : null}
+        </div>
         <form className="flex flex-col gap-2" onSubmit={handleCalendarSubmit}>
           <label className="text-sm font-medium text-card-foreground" htmlFor="cal-text">
             行程描述
