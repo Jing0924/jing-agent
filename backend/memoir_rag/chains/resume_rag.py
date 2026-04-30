@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Sequence
+from zoneinfo import ZoneInfo
 
 from langchain_classic.chains import create_retrieval_chain
 from langchain_classic.chains.combine_documents import create_stuff_documents_chain
@@ -18,12 +20,18 @@ from memoir_rag.config import (
     CHUNK_SIZE,
     EMBEDDING_MODEL,
     LLM_MODEL,
+    PROJECT_ROOT,
     knowledge_fingerprint_bytes,
     override_fields,
     require_google_api_key,
     resolve_knowledge_md_paths,
 )
-from memoir_rag.loaders.canonical import build_authoritative_documents, tag_body_chunks
+from memoir_rag.loaders.birthdays import extract_birthdays
+from memoir_rag.loaders.canonical import (
+    build_age_facts_document,
+    build_authoritative_documents,
+    tag_body_chunks,
+)
 from memoir_rag.loaders.resume import load_resume
 from memoir_rag.loaders.vectorstore import build_or_load_chroma, compute_fingerprint
 from memoir_rag.prompts.resume import SYSTEM, prompt_digest
@@ -104,7 +112,7 @@ def _merge_authoritative_and_retrieved(
 
 
 def build_resume_rag_chain(knowledge_paths: Sequence[Path] | None = None) -> ResumeRagChainBundle:
-    """多份 Markdown（`knowledge/*.md` 優先；否則 `resume.md`，皆相對於應用程式根 backend/）→ 向量庫與檢索問答鏈。"""
+    """多份 Markdown（`knowledge/` 下（含子目錄）所有 `.md` 優先；否則 `resume.md`，皆相對於應用程式根 backend/）→ 向量庫與檢索問答鏈。"""
     paths = (
         [Path(p).resolve() for p in knowledge_paths]
         if knowledge_paths is not None
@@ -128,6 +136,15 @@ def build_resume_rag_chain(knowledge_paths: Sequence[Path] | None = None) -> Res
         employer,
         title,
     )
+
+    birthdays_all: list = []
+    for resume_path in paths:
+        raw = resume_path.read_text(encoding="utf-8")
+        try:
+            source = str(resume_path.resolve().relative_to(PROJECT_ROOT.resolve()))
+        except ValueError:
+            source = resume_path.as_posix()
+        birthdays_all.extend(extract_birthdays(raw, source=source))
 
     all_docs: list[Document] = []
     for i, resume_path in enumerate(paths):
@@ -169,8 +186,11 @@ def build_resume_rag_chain(knowledge_paths: Sequence[Path] | None = None) -> Res
     base_retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
 
     def _retriever(payload: dict) -> list[Document]:
+        today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+        age_doc = build_age_facts_document(birthdays_all, today)
+        prefix = ([age_doc] if age_doc else []) + authoritative_prefix
         retrieved = base_retriever.invoke(payload["input"])
-        return _merge_authoritative_and_retrieved(authoritative_prefix, retrieved)
+        return _merge_authoritative_and_retrieved(prefix, retrieved)
 
     retriever = RunnableLambda(_retriever)
 

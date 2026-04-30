@@ -1,6 +1,6 @@
 # jing-memoir（履歷／回憶 RAG）
 
-以 **`backend/knowledge/*.md`（優先）或後端應用根目錄下的 `resume.md`** 為知識庫的履歷問答示例：將履歷切分並向量化存入 Chroma，透過 LangChain 與 Google Gemini（嵌入 + 生成）做 RAG（Retrieval-Augmented Generation）。可從 CLI、HTTP API 或使用內建的 React 前端操作。
+以 **`backend/knowledge/` 下（含子目錄）所有 `.md`（優先）或後端應用根目錄下的 `resume.md`** 為知識庫的履歷問答示例：將履歷切分並向量化存入 Chroma，透過 LangChain 與 Google Gemini（嵌入 + 生成）做 RAG（Retrieval-Augmented Generation）。可從 CLI、HTTP API 或使用內建的 React 前端操作。
 
 ---
 
@@ -37,7 +37,7 @@ GOOGLE_API_KEY=你的金鑰
 | `RESUME_JOB_TITLE_OVERRIDE` | 覆寫顯示的職稱 |
 | `MEMOIR_CORS_ORIGINS` 或 `CORS_ALLOW_ORIGINS` | 逗號分隔的瀏覽器來源（CORS）；未設定時預設為本機 Vite `http://localhost:5173`、`http://127.0.0.1:5173` |
 
-知識庫可採**多檔 Markdown**：若 **`backend/knowledge/` 內至少有一份 `*.md`**，則載入該目錄下所有 `.md`（依路徑排序）；否則退回單檔 **`backend/resume.md`**。每份文件第一個 `---` 之前可作為「開頭摘要」加權區段。向量索引會持久化到 **`backend/.chroma/resume/`**（已列於 `.gitignore`）。
+知識庫可採**多檔 Markdown**：若 **`backend/knowledge/` 下（含子目錄）至少有一份 `.md`**，則載入該目錄樹下所有 `.md`（依路徑排序）；否則退回單檔 **`backend/resume.md`**。每份文件第一個 `---` 之前可作為「開頭摘要」加權區段。向量索引會持久化到 **`backend/.chroma/resume/`**（已列於 `.gitignore`）。
 
 ---
 
@@ -113,7 +113,7 @@ npm run dev
 
 ## 疑難排解
 
-- **健康檢查為 200 但 `ready: false`、`status: degraded`**：表示應用已啟動，但 RAG 建鏈失敗；請看 body 的 `error`，並檢查 `.env` 金鑰、網路，以及 `backend/knowledge/*.md` 或 `backend/resume.md` 是否存在且可讀。
+- **健康檢查為 200 但 `ready: false`、`status: degraded`**：表示應用已啟動，但 RAG 建鏈失敗；請看 body 的 `error`，並檢查 `.env` 金鑰、網路，以及 `backend/knowledge/` 下是否至少有一份可讀的 `.md`，或 **`backend/resume.md`** 是否存在且可讀。
 - **`POST /api/ask`、`POST /api/ask/stream` 回 503**：問答端點在 RAG **未就緒**（`RagFailedState`）時會拒絕；此時健康檢查仍通常為 **200** 並在 body 呈現 `degraded`。若為「Application state not initialized.」，表示 `app.state.rag` 尚未建立，此時 **`GET /health` 亦會 503**（與問答相同，皆走 `get_rag_state`）。其餘問答 503 的內容多為建鏈錯誤，可對照 `/api/health` 的 `error`。
 - **前端「無法連線至後端」**：確認 `uvicorn` 已在本機 `8000` 埠執行。
 - **送出問題出現「Not Found」**：多半是後端行程仍未 reload、或啟動的不是 `memoir_rag.api_app:app`，路由表裡沒有 `POST /api/ask/stream`。請完全停止舊的 `uvicorn` 後再執行文件中的啟動指令。可用下列指令確認（預期 **不是** `404`）：

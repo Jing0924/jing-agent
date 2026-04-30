@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 PACKAGE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_ROOT.parent
 
-# `knowledge/*.md` 若存在至少一個，則優先使用；否則退回應用程式根（`PROJECT_ROOT`）底下的單檔 `resume.md`。
+# `knowledge/` 下所有 `.md`（含子目錄）若存在至少一個，則優先使用；否則退回應用程式根（`PROJECT_ROOT`）底下的單檔 `resume.md`。
 KNOWLEDGE_DIR = PROJECT_ROOT / "knowledge"
 RESUME_PATH = PROJECT_ROOT / "resume.md"
 PERSIST_DIR = PROJECT_ROOT / ".chroma" / "resume"
@@ -60,13 +60,13 @@ def cors_allow_origins() -> list[str]:
 def resolve_knowledge_md_paths() -> list[Path]:
     """要向量化之 Markdown 路徑（穩定排序）。"""
     if KNOWLEDGE_DIR.is_dir():
-        md_files = sorted(KNOWLEDGE_DIR.glob("*.md"), key=lambda p: p.as_posix())
+        md_files = sorted(KNOWLEDGE_DIR.rglob("*.md"), key=lambda p: p.as_posix())
         if md_files:
             return md_files
     if RESUME_PATH.is_file():
         return [RESUME_PATH]
     raise FileNotFoundError(
-        f"找不到知識庫：請在 {KNOWLEDGE_DIR} 放入至少一個 .md，"
+        f"找不到知識庫：請在 `{KNOWLEDGE_DIR.name}/` 下至少放入一個 `.md`（可在子目錄），"
         f"或使用 {RESUME_PATH}（與 `{KNOWLEDGE_DIR.name}` 同屬應用程式根）。"
     )
 

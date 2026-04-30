@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from langchain_core.documents import Document
 
+from memoir_rag.loaders.birthdays import BirthdayRecord, compute_real_age
 from memoir_rag.loaders.resume import _clean_resume_text
 
 
@@ -61,6 +63,43 @@ def build_authoritative_documents(
         )
 
     return docs
+
+
+def build_age_facts_document(
+    birthdays: list[BirthdayRecord],
+    today: date,
+) -> Document | None:
+    """Highest-priority runtime doc for deterministic ages vs. LLM date arithmetic."""
+    if not birthdays:
+        return None
+    zone = "Asia/Taipei"
+    lines = [
+        "【今日基準與實歲（自動計算，請以本段為準）】",
+        f"今日日期：{today.strftime('%Y/%m/%d')} ({zone})",
+        "",
+    ]
+    ordered = sorted(birthdays, key=lambda r: (r.birthdate, r.name))
+    for r in ordered:
+        role = f"（{r.role}）" if r.role else ""
+        age = compute_real_age(r.birthdate, today)
+        lines.append(
+            f"- {r.name}{role}：{r.birthdate.strftime('%Y/%m/%d')} → 實歲 {age} 歲"
+        )
+    lines.append("")
+    lines.append(
+        "涉及年齡 / 日期的問題一律以本段為準，禁止自行推算；"
+        "其他段落若出現舊數字（例如「28 歲」），請以本段覆蓋。"
+    )
+    body = "\n".join(lines)
+    return Document(
+        page_content=body,
+        metadata={
+            "source": "age_facts",
+            "kind": "age_facts",
+            "authoritative": True,
+            "priority": -1,
+        },
+    )
 
 
 def tag_body_chunks(

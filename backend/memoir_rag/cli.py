@@ -14,7 +14,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "以 knowledge/*.md（若無則 resume.md）為知識庫，根據履歷 RAG 回答問題。"
+            "以 knowledge/ 下（含子目錄）所有 .md（若無則 resume.md）為知識庫，根據履歷 RAG 回答問題。"
         )
     )
     parser.add_argument(

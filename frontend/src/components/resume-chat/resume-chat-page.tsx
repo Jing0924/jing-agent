@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { AnswerMarkdown } from '@/components/markdown/answer-markdown'
 import { useAskStream } from '@/hooks/use-ask-stream'
 import { useHealth } from '@/hooks/use-health'
 import { cn } from '@/lib/utils'
@@ -140,9 +141,7 @@ function ResumeChatPage() {
                     產生中，請稍候…
                   </p>
                 ) : (
-                  <p className="whitespace-pre-wrap break-words text-[0.95rem] leading-relaxed text-card-foreground">
-                    {answer}
-                  </p>
+                  <AnswerMarkdown content={answer} />
                 )}
               </div>
             </CardContent>
