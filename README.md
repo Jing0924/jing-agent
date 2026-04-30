@@ -1,4 +1,4 @@
-# jing-memoir（履歷／回憶 RAG）
+# jing-agent（履歷／回憶 RAG）
 
 以 **`backend/knowledge/` 下（含子目錄）所有 `.md`（優先）或後端應用根目錄下的 `resume.md`** 為知識庫的履歷問答示例：將履歷切分並向量化存入 Chroma，透過 LangChain 與 Google Gemini（嵌入 + 生成）做 RAG（Retrieval-Augmented Generation）。可從 CLI、HTTP API 或使用內建的 React 前端操作。
 
