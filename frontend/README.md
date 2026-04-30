@@ -1,73 +1,52 @@
-# React + TypeScript + Vite
+# jing-agent 前端
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+以 **Vite 8 + React 19 + TypeScript** 建置的網頁介面：與後端 **FastAPI**（`memoir_rag.api_app`）搭配，提供履歷／知識庫 RAG 問答（串流 SSE）與選用的 Google 行事曆建立流程。
 
-Currently, two official plugins are available:
+完整環境變數、API 說明與疑難排解請見倉庫根目錄的 [README.md](../README.md)。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 需求
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Node.js（建議與目前維護的 LTS 相容版本）
+- 本機已啟動後端（預設 `http://127.0.0.1:8000`）
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 安裝與開發
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+開發伺服器預設會把 **`/api` 請求 proxy 到 `http://127.0.0.1:8000`**（見 `vite.config.ts`），因此瀏覽器只需開 Vite 埠（常見為 `http://localhost:5173`），無需在瀏覽器端設定 CORS 或 API base URL。
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| 指令 | 說明 |
+|------|------|
+| `npm run dev` | 啟動開發伺服器（含 HMR） |
+| `npm run build` | TypeScript 檢查後產出 production 靜態檔 |
+| `npm run preview` | 預覽 build 結果 |
+| `npm run lint` | 執行 ESLint |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
+
+## 路由與功能（簡要）
+
+| 路徑 | 說明 |
+|------|------|
+| `/` | 知識庫問答：呼叫 `POST /api/ask/stream`（若後端無串流路由會退回 `POST /api/ask`），並顯示 `/api/health` 就緒狀態 |
+| `/calendar` | 行事曆：依後端 OAuth 設定建立事件等（見根目錄 README） |
+
+主要實作目錄：`src/pages/`、`src/components/`、`src/hooks/`、`src/lib/api/`。樣式為 **Tailwind CSS v4**（`@tailwindcss/vite`），路徑別名 `@/` 對應 `src/`。
+
+---
+
+## 技術摘要
+
+- **React Router** 路由、`@tanstack/react-query` 請求快取
+- **`react-markdown` + `remark-gfm`** 渲染模型回答
+- UI 元件風格接近 shadcn／Base UI 組合（見 `src/components/ui/`）
+
+前端目前不依賴 `VITE_*` 環境變數；Gemini 金鑰等由後端 `.env` 載入（見根目錄 README）。
