@@ -1,7 +1,14 @@
-import type { MouseEvent } from 'react'
+import type { FormEvent, MouseEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { AlertTriangle, CheckCircle2, Mic, Square, Volume2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  MessageCircle,
+  Mic,
+  Square,
+  Volume2,
+} from 'lucide-react'
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,6 +20,16 @@ import { useHealth } from '@/hooks/use-health'
 import { useVoiceInput } from '@/hooks/use-voice-input'
 import { uploadAudioForTranscript, synthesizeSpeech } from '@/lib/api/speech'
 import { cn } from '@/lib/utils'
+
+const VOICE_CONVERSATION_STORAGE_KEY = 'knowledge-chat-voice-conversation'
+
+function readVoiceConversationPref(): boolean {
+  try {
+    return localStorage.getItem(VOICE_CONVERSATION_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
 
 const INTERVIEW_QUICK_QUESTIONS = [
   '請用一小段話自我介紹（背景與目前狀態）。',
@@ -41,7 +58,18 @@ function KnowledgeChatPage() {
   const speechUsable = ready && health?.speech_enabled === true
 
   const voiceInput = useVoiceInput()
+  const [voiceConversationMode, setVoiceConversationMode] = useState(
+    readVoiceConversationPref,
+  )
+  const voiceConversationModeRef = useRef(voiceConversationMode)
+  const [conversationListeningActive, setConversationListeningActive] =
+    useState(false)
+  const conversationListeningActiveRef = useRef(false)
+  const segmentLoopInFlightRef = useRef(false)
+  const expectAutoTtsRef = useRef(false)
+  const prevLoadingRef = useRef(false)
   const [voiceBusy, setVoiceBusy] = useState(false)
+  const voiceBusyRef = useRef(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [ttsBusy, setTtsBusy] = useState(false)
   const [ttsPlaying, setTtsPlaying] = useState(false)
@@ -75,22 +103,168 @@ function KnowledgeChatPage() {
     setTtsError(null)
   }, [answer, stopTts])
 
+  useEffect(() => {
+    voiceConversationModeRef.current = voiceConversationMode
+  }, [voiceConversationMode])
+
+  const processVoiceBlob = useCallback(
+    async (blob: Blob | null) => {
+      if (!blob || blob.size <= 0) return
+      try {
+        const { transcript } = await uploadAudioForTranscript(blob)
+        const trimmed = transcript.trim()
+        if (!trimmed) {
+          setVoiceError('未辨識到語音內容，請再試一次。')
+          return
+        }
+        expectAutoTtsRef.current = voiceConversationMode
+        askWithText(trimmed)
+      } catch (e) {
+        setVoiceError(e instanceof Error ? e.message : '語音轉文字失敗。')
+      }
+    },
+    [askWithText, voiceConversationMode],
+  )
+
+  const playAnswerTts = useCallback(
+    async (text: string) => {
+      if (!speechUsable || !text.trim()) return
+      setTtsError(null)
+      stopTts()
+      setTtsBusy(true)
+      try {
+        const mp3 = await synthesizeSpeech(text)
+        stopTts()
+        const url = URL.createObjectURL(mp3)
+        ttsUrlRef.current = url
+        const audio = new Audio(url)
+        audioRef.current = audio
+        audio.onended = () => {
+          setTtsPlaying(false)
+          stopTts()
+        }
+        audio.onerror = () => {
+          setTtsError('無法播放語音。')
+          stopTts()
+        }
+        await audio.play()
+        setTtsPlaying(true)
+      } catch (e) {
+        stopTts()
+        setTtsError(e instanceof Error ? e.message : '語音合成失敗。')
+      } finally {
+        setTtsBusy(false)
+      }
+    },
+    [speechUsable, stopTts],
+  )
+
+  useEffect(() => {
+    const wasLoading = prevLoadingRef.current
+    prevLoadingRef.current = loading
+    if (!voiceConversationMode || !wasLoading || loading) return
+    if (!expectAutoTtsRef.current) return
+    expectAutoTtsRef.current = false
+    if (error || !answer.trim()) return
+    void playAnswerTts(answer)
+  }, [
+    voiceConversationMode,
+    loading,
+    answer,
+    error,
+    playAnswerTts,
+  ])
+
+  useEffect(() => {
+    voiceBusyRef.current = voiceBusy
+  }, [voiceBusy])
+
+  /* eslint-disable react-hooks/exhaustive-deps -- omit isRecording and voiceBusy: they flip when startRecording/setVoiceBusy run and would cleanup this effect, cancelling the in-flight segment and looping setVoiceBusy. Guard busy via voiceBusyRef.current instead. */
+  useEffect(() => {
+    if (
+      !conversationListeningActive ||
+      !voiceConversationMode ||
+      !speechUsable
+    ) {
+      return
+    }
+    if (
+      voiceInput.isRecording ||
+      voiceBusyRef.current ||
+      loading ||
+      ttsBusy ||
+      ttsPlaying
+    ) {
+      return
+    }
+    if (segmentLoopInFlightRef.current) return
+
+    segmentLoopInFlightRef.current = true
+    let cancelled = false
+
+    void (async () => {
+      try {
+        setVoiceBusy(true)
+        const blob = await voiceInput.startRecording({ endOnSilence: {} })
+        if (
+          cancelled ||
+          !conversationListeningActiveRef.current ||
+          !voiceConversationModeRef.current
+        ) {
+          if (voiceInput.isRecording) {
+            await voiceInput.stopRecording()
+          }
+          return
+        }
+        await processVoiceBlob(blob ?? null)
+      } catch (e) {
+        if (!cancelled) {
+          setVoiceError(e instanceof Error ? e.message : '語音輸入失敗。')
+          conversationListeningActiveRef.current = false
+          setConversationListeningActive(false)
+        }
+      } finally {
+        setVoiceBusy(false)
+        segmentLoopInFlightRef.current = false
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    conversationListeningActive,
+    voiceConversationMode,
+    speechUsable,
+    loading,
+    ttsBusy,
+    ttsPlaying,
+    voiceInput.startRecording,
+    voiceInput.stopRecording,
+    processVoiceBlob,
+  ])
+  /* eslint-enable react-hooks/exhaustive-deps */
+
   const onMicClick = async () => {
-    if (!speechUsable || voiceBusy || loading) return
+    if (!speechUsable || voiceBusy) return
+
+    const canStopWhileLoading =
+      voiceConversationMode &&
+      conversationListeningActive &&
+      voiceInput.isRecording
+
+    if (loading && !canStopWhileLoading) return
+
     setVoiceError(null)
     if (voiceInput.isRecording) {
       setVoiceBusy(true)
       try {
-        const blob = await voiceInput.stopRecording()
-        if (blob && blob.size > 0) {
-          const { transcript } = await uploadAudioForTranscript(blob)
-          const trimmed = transcript.trim()
-          if (trimmed) {
-            void askWithText(trimmed)
-          } else {
-            setVoiceError('未辨識到語音內容，請再試一次。')
-          }
+        if (voiceConversationMode) {
+          conversationListeningActiveRef.current = false
+          setConversationListeningActive(false)
         }
+        const blob = await voiceInput.stopRecording()
+        await processVoiceBlob(blob)
       } catch (e) {
         setVoiceError(e instanceof Error ? e.message : '語音轉文字失敗。')
       } finally {
@@ -99,7 +273,31 @@ function KnowledgeChatPage() {
     } else {
       setVoiceBusy(true)
       try {
-        await voiceInput.startRecording()
+        if (voiceConversationMode) {
+          conversationListeningActiveRef.current = true
+          setConversationListeningActive(true)
+          try {
+            const blob = await voiceInput.startRecording({ endOnSilence: {} })
+            if (
+              !conversationListeningActiveRef.current ||
+              !voiceConversationModeRef.current
+            ) {
+              if (voiceInput.isRecording) {
+                await voiceInput.stopRecording()
+              }
+              return
+            }
+            await processVoiceBlob(blob ?? null)
+          } catch (e) {
+            conversationListeningActiveRef.current = false
+            setConversationListeningActive(false)
+            throw e
+          }
+        } else {
+          await voiceInput.startRecording()
+        }
+      } catch (e) {
+        setVoiceError(e instanceof Error ? e.message : '語音輸入失敗。')
       } finally {
         setVoiceBusy(false)
       }
@@ -108,34 +306,50 @@ function KnowledgeChatPage() {
 
   const onReadAloudClick = async () => {
     if (!speechUsable || !answer.trim() || loading) return
-    setTtsError(null)
     if (ttsPlaying || (audioRef.current && !audioRef.current.paused)) {
       stopTts()
       return
     }
-    setTtsBusy(true)
-    try {
-      const mp3 = await synthesizeSpeech(answer)
-      stopTts()
-      const url = URL.createObjectURL(mp3)
-      ttsUrlRef.current = url
-      const audio = new Audio(url)
-      audioRef.current = audio
-      audio.onended = () => {
-        setTtsPlaying(false)
-        stopTts()
+    await playAnswerTts(answer)
+  }
+
+  const toggleVoiceConversationMode = () => {
+    setVoiceConversationMode((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(
+          VOICE_CONVERSATION_STORAGE_KEY,
+          next ? 'true' : 'false',
+        )
+      } catch {
+        /* ignore */
       }
-      audio.onerror = () => {
-        setTtsError('無法播放語音。')
-        stopTts()
+      if (!next) {
+        expectAutoTtsRef.current = false
+        conversationListeningActiveRef.current = false
+        setConversationListeningActive(false)
+        void (async () => {
+          if (!voiceInput.isRecording) return
+          setVoiceBusy(true)
+          try {
+            const blob = await voiceInput.stopRecording()
+            await processVoiceBlob(blob)
+          } catch (e) {
+            setVoiceError(
+              e instanceof Error ? e.message : '語音轉文字失敗。',
+            )
+          } finally {
+            setVoiceBusy(false)
+          }
+        })()
       }
-      setTtsPlaying(true)
-      await audio.play()
-    } catch (e) {
-      setTtsError(e instanceof Error ? e.message : '語音合成失敗。')
-    } finally {
-      setTtsBusy(false)
-    }
+      return next
+    })
+  }
+
+  const onQuestionSubmit = (e: FormEvent<HTMLFormElement>) => {
+    expectAutoTtsRef.current = false
+    void handleSubmit(e)
   }
 
   function onRefreshHealth(e: MouseEvent<HTMLButtonElement>) {
@@ -199,7 +413,7 @@ function KnowledgeChatPage() {
         <h2 id="question-heading" className="sr-only">
           提問
         </h2>
-        <form className="flex flex-col gap-2" onSubmit={handleSubmit}>
+        <form className="flex flex-col gap-2" onSubmit={onQuestionSubmit}>
           <label className="text-sm font-medium text-card-foreground" htmlFor="q">
             問題
           </label>
@@ -217,31 +431,64 @@ function KnowledgeChatPage() {
               {loading ? '處理中…' : '送出'}
             </Button>
             {speechUsable ? (
-              <Button
-                type="button"
-                variant={voiceInput.isRecording ? 'secondary' : 'outline'}
-                size="lg"
-                disabled={loading || voiceBusy}
-                aria-label={
-                  voiceInput.isRecording ? '停止錄音並送出問題' : '開始語音輸入'
-                }
-                aria-pressed={voiceInput.isRecording}
-                onClick={() => void onMicClick()}
-                className="gap-2"
-              >
-                {voiceInput.isRecording ? (
-                  <Square className="size-4" aria-hidden />
-                ) : (
-                  <Mic className="size-4" aria-hidden />
-                )}
-                {voiceBusy
-                  ? voiceInput.isRecording
-                    ? '辨識中…'
-                    : '啟動中…'
-                  : voiceInput.isRecording
-                    ? '停止並送出'
-                    : '語音輸入'}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant={voiceInput.isRecording ? 'secondary' : 'outline'}
+                  size="lg"
+                  disabled={
+                    voiceBusy ||
+                    (loading &&
+                      !(
+                        voiceConversationMode &&
+                        conversationListeningActive &&
+                        voiceInput.isRecording
+                      ))
+                  }
+                  aria-label={
+                    voiceConversationMode && conversationListeningActive
+                      ? voiceInput.isRecording
+                        ? '結束監聽並送出目前這一段'
+                        : '開始語音監聽會話'
+                      : voiceInput.isRecording
+                        ? '停止錄音並送出問題'
+                        : '開始語音輸入'
+                  }
+                  aria-pressed={voiceInput.isRecording}
+                  onClick={() => void onMicClick()}
+                  className="gap-2"
+                >
+                  {voiceInput.isRecording ? (
+                    <Square className="size-4" aria-hidden />
+                  ) : (
+                    <Mic className="size-4" aria-hidden />
+                  )}
+                  {voiceBusy
+                    ? voiceInput.isRecording
+                      ? '辨識中…'
+                      : '啟動中…'
+                    : voiceInput.isRecording
+                      ? voiceConversationMode && conversationListeningActive
+                        ? '結束監聽'
+                        : '停止並送出'
+                      : '語音輸入'}
+                </Button>
+                <Button
+                  type="button"
+                  variant={voiceConversationMode ? 'secondary' : 'outline'}
+                  size="lg"
+                  disabled={voiceBusy}
+                  aria-label={
+                    voiceConversationMode ? '關閉對話模式' : '開啟對話模式'
+                  }
+                  aria-pressed={voiceConversationMode}
+                  onClick={toggleVoiceConversationMode}
+                  className="gap-2"
+                >
+                  <MessageCircle className="size-4" aria-hidden />
+                  對話模式
+                </Button>
+              </>
             ) : null}
             <Button
               type="button"
@@ -255,8 +502,19 @@ function KnowledgeChatPage() {
           </div>
           {speechUsable ? (
             <p className="text-xs text-muted-foreground">
-              停止錄音後會自動送出問題。語音輸入建議使用 Chrome／Edge（WebM
-              Opus）。Safari 錄音格式可能無法辨識。
+              {voiceConversationMode ? (
+                <>
+                  對話模式：點「語音輸入」開始監聽；停頓約一秒後自動送出並續錄下一輪。
+                  再次點語音輸入可結束監聽（錄音中會送出目前這一段）；關閉對話模式亦會結束監聽。
+                  語音成功送出後，回答結束將自動朗讀，朗讀完畢後才會再開麥克風以避免回音。
+                  語音輸入建議 Chrome／Edge（WebM Opus）；Safari 錄音格式可能無法辨識。
+                </>
+              ) : (
+                <>
+                  停止錄音後會自動送出問題；回答需按「朗讀」。語音輸入建議使用
+                  Chrome／Edge（WebM Opus）。Safari 錄音格式可能無法辨識。
+                </>
+              )}
             </p>
           ) : null}
         </form>
@@ -297,7 +555,10 @@ function KnowledgeChatPage() {
               className="h-auto max-w-full shrink-0 whitespace-normal py-2 text-left text-sm leading-snug"
               disabled={loading || !ready}
               aria-label={qPreset}
-              onClick={() => askWithText(qPreset)}
+              onClick={() => {
+                expectAutoTtsRef.current = false
+                askWithText(qPreset)
+              }}
             >
               {qPreset}
             </Button>

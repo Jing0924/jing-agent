@@ -51,7 +51,7 @@ export function useAskStream(health: HealthPayload | undefined) {
         setLoading(false)
       }
     },
-    [health],
+    [health?.prompt_sha256, health?.embedding_fingerprint],
   )
 
   const handleSubmit = useCallback(
