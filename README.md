@@ -36,6 +36,9 @@ GOOGLE_API_KEY=你的金鑰
 | `RESUME_EMPLOYER_OVERRIDE` | 覆寫顯示的雇主資訊 |
 | `RESUME_JOB_TITLE_OVERRIDE` | 覆寫顯示的職稱 |
 | `MEMOIR_CORS_ORIGINS` 或 `CORS_ALLOW_ORIGINS` | 逗號分隔的瀏覽器來源（CORS）；未設定時預設為本機 Vite `http://localhost:5173`、`http://127.0.0.1:5173` |
+| `GOOGLE_CLOUD_API_KEY` | （選用）語音：**後端**以 REST 呼叫 [Speech-to-Text](https://cloud.google.com/speech-to-text)／[Text-to-Speech](https://cloud.google.com/text-to-speech) 所用的 **Google Cloud API 金鑰**（與 `GOOGLE_API_KEY`／Gemini 分開）。此金鑰必須允許**伺服器對 Google** 的請求；若在「APIs 與服務 → [憑證](https://console.cloud.google.com/apis/credentials)」將應用程式限制設為 **HTTP 參照網址**，後端請求沒有瀏覽器 Referer，會出現類似 `Requests from referer <empty> are blocked` 的英文錯誤。請改為 **IP 位址**（或正式環境可接受的限制）、或開發時暫為 **無**，並搭配 API 限制只開啟所需語音 API。 |
+
+在 Cloud Console 啟用對應 API 後將金鑰設於 `.env` 即可；前端不持有此金鑰。
 
 **Google 行事曆（選用，與 Gemini 金鑰分開）**：在 Cloud Console 啟用 Calendar API、建立 OAuth **桌面應用程式**，於 `.env` 設定 `GOOGLE_CALENDAR_CLIENT_ID`、`GOOGLE_CALENDAR_CLIENT_SECRET`，再於 `backend/` 執行 `python scripts/oauth_google_calendar.py` 取得並貼上 `GOOGLE_CALENDAR_REFRESH_TOKEN`（請勿提交至 git）。
 
@@ -137,6 +140,7 @@ npm run dev
   ```
 
   若為 `404`，請改啟動 `cd backend && uvicorn memoir_rag.api_app:app --reload --host 127.0.0.1 --port 8000`。開發中前端若偵測串流端點 404，會自動改叫 `POST /api/ask`（一次性 JSON，非串流）。
+- **語音相關 API 錯誤訊息含 `referer` 與 `blocked`，或英文 `Requests from referer <empty> are blocked`**：代表 `GOOGLE_CLOUD_API_KEY` 在 GCP 設了 **HTTP 參照網址**，不適合由後端代打 Google。請見上表 `GOOGLE_CLOUD_API_KEY` 說明，於「憑證」調整應用程式限制；若瀏覽器 Network 中 403 來自 `speech.googleapis.com` 或 `texttospeech.googleapis.com`，亦可對照確認為金鑰／權限問題。
 
 ---
 

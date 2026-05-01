@@ -40,6 +40,16 @@ def require_google_api_key() -> None:
         )
 
 
+def google_cloud_api_key() -> str | None:
+    """Google Cloud API 金鑰（Speech-to-Text / Text-to-Speech）；與 GOOGLE_API_KEY 分開設定。"""
+    key = (os.environ.get("GOOGLE_CLOUD_API_KEY") or "").strip()
+    return key or None
+
+
+def speech_enabled() -> bool:
+    return google_cloud_api_key() is not None
+
+
 def override_fields() -> tuple[str, str]:
     employer = (os.environ.get("RESUME_EMPLOYER_OVERRIDE") or "").strip()
     title = (os.environ.get("RESUME_JOB_TITLE_OVERRIDE") or "").strip()

@@ -9,6 +9,8 @@ langchain-text-splitters==1.1.2
 python-dotenv==1.2.2
 fastapi==0.115.12
 uvicorn[standard]==0.34.2
+httpx==0.28.1
+python-multipart==0.0.20
 google-api-python-client==2.164.0
 # google-genai (via langchain-google-genai) requires google-auth>=2.47; 2.38 conflicts.
 google-auth==2.49.2

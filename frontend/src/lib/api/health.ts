@@ -5,6 +5,7 @@ export type HealthPayload = {
   embedding_fingerprint?: string
   prompt_sha256?: string
   llm_model?: string
+  speech_enabled?: boolean
 }
 
 export async function fetchHealth(): Promise<HealthPayload> {

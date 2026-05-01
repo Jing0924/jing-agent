@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator
 
+from memoir_rag.config import speech_enabled
 from memoir_rag.state import RagFailedState, RagReadyState
 
 
@@ -16,11 +17,18 @@ class HealthResponse(BaseModel):
     embedding_fingerprint: str | None = None
     prompt_sha256: str | None = None
     llm_model: str | None = None
+    speech_enabled: bool = False
 
 
 def health_response_from_rag(rag: RagReadyState | RagFailedState) -> HealthResponse:
+    se = speech_enabled()
     if isinstance(rag, RagFailedState):
-        return HealthResponse(status="degraded", ready=False, error=rag.error)
+        return HealthResponse(
+            status="degraded",
+            ready=False,
+            error=rag.error,
+            speech_enabled=se,
+        )
     return HealthResponse(
         status="ok",
         ready=True,
@@ -28,6 +36,7 @@ def health_response_from_rag(rag: RagReadyState | RagFailedState) -> HealthRespo
         embedding_fingerprint=rag.embedding_fingerprint,
         prompt_sha256=rag.prompt_sha256,
         llm_model=rag.llm_model,
+        speech_enabled=se,
     )
 
 

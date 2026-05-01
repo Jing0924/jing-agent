@@ -1,6 +1,7 @@
 import type { MouseEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Mic, Square, Volume2 } from 'lucide-react'
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,6 +10,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AnswerMarkdown } from '@/components/markdown/answer-markdown'
 import { useAskStream } from '@/hooks/use-ask-stream'
 import { useHealth } from '@/hooks/use-health'
+import { useVoiceInput } from '@/hooks/use-voice-input'
+import { uploadAudioForTranscript, synthesizeSpeech } from '@/lib/api/speech'
 import { cn } from '@/lib/utils'
 
 const INTERVIEW_QUICK_QUESTIONS = [
@@ -35,6 +38,100 @@ function KnowledgeChatPage() {
   } = useAskStream(health)
 
   const ready = health?.ready === true
+  const speechUsable = ready && health?.speech_enabled === true
+
+  const voiceInput = useVoiceInput()
+  const [voiceBusy, setVoiceBusy] = useState(false)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [ttsBusy, setTtsBusy] = useState(false)
+  const [ttsPlaying, setTtsPlaying] = useState(false)
+  const [ttsError, setTtsError] = useState<string | null>(null)
+  const ttsUrlRef = useRef<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const stopTts = useCallback(() => {
+    const a = audioRef.current
+    if (a) {
+      a.pause()
+      audioRef.current = null
+    }
+    if (ttsUrlRef.current) {
+      URL.revokeObjectURL(ttsUrlRef.current)
+      ttsUrlRef.current = null
+    }
+    setTtsPlaying(false)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      const a = audioRef.current
+      if (a) a.pause()
+      if (ttsUrlRef.current) URL.revokeObjectURL(ttsUrlRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    stopTts()
+    setTtsError(null)
+  }, [answer, stopTts])
+
+  const onMicClick = async () => {
+    if (!speechUsable || voiceBusy || loading) return
+    setVoiceError(null)
+    if (voiceInput.isRecording) {
+      setVoiceBusy(true)
+      try {
+        const blob = await voiceInput.stopRecording()
+        if (blob && blob.size > 0) {
+          const { transcript } = await uploadAudioForTranscript(blob)
+          setQuestion(transcript.trim())
+        }
+      } catch (e) {
+        setVoiceError(e instanceof Error ? e.message : '語音轉文字失敗。')
+      } finally {
+        setVoiceBusy(false)
+      }
+    } else {
+      setVoiceBusy(true)
+      try {
+        await voiceInput.startRecording()
+      } finally {
+        setVoiceBusy(false)
+      }
+    }
+  }
+
+  const onReadAloudClick = async () => {
+    if (!speechUsable || !answer.trim() || loading) return
+    setTtsError(null)
+    if (ttsPlaying || (audioRef.current && !audioRef.current.paused)) {
+      stopTts()
+      return
+    }
+    setTtsBusy(true)
+    try {
+      const mp3 = await synthesizeSpeech(answer)
+      stopTts()
+      const url = URL.createObjectURL(mp3)
+      ttsUrlRef.current = url
+      const audio = new Audio(url)
+      audioRef.current = audio
+      audio.onended = () => {
+        setTtsPlaying(false)
+        stopTts()
+      }
+      audio.onerror = () => {
+        setTtsError('無法播放語音。')
+        stopTts()
+      }
+      setTtsPlaying(true)
+      await audio.play()
+    } catch (e) {
+      setTtsError(e instanceof Error ? e.message : '語音合成失敗。')
+    } finally {
+      setTtsBusy(false)
+    }
+  }
 
   function onRefreshHealth(e: MouseEvent<HTMLButtonElement>) {
     e.preventDefault()
@@ -74,6 +171,11 @@ function KnowledgeChatPage() {
             <span>
               {ready ? '服務就緒' : '服務未就緒'}
               {!ready && health.error ? `：${health.error}` : null}
+              {ready && health.speech_enabled !== true ? (
+                <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                  後端未設定 GOOGLE_CLOUD_API_KEY 時，語音輸入與朗讀不可用。
+                </span>
+              ) : null}
             </span>
           </p>
         )}
@@ -105,10 +207,37 @@ function KnowledgeChatPage() {
             disabled={loading || !ready}
             className="min-h-[4.5rem] text-base md:text-sm"
           />
-          <div className="mt-1 flex flex-wrap gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <Button type="submit" disabled={loading || !ready} size="lg">
               {loading ? '處理中…' : '送出'}
             </Button>
+            {speechUsable ? (
+              <Button
+                type="button"
+                variant={voiceInput.isRecording ? 'secondary' : 'outline'}
+                size="lg"
+                disabled={loading || voiceBusy}
+                aria-label={
+                  voiceInput.isRecording ? '停止錄音並轉成文字' : '開始語音輸入'
+                }
+                aria-pressed={voiceInput.isRecording}
+                onClick={() => void onMicClick()}
+                className="gap-2"
+              >
+                {voiceInput.isRecording ? (
+                  <Square className="size-4" aria-hidden />
+                ) : (
+                  <Mic className="size-4" aria-hidden />
+                )}
+                {voiceBusy
+                  ? voiceInput.isRecording
+                    ? '辨識中…'
+                    : '啟動中…'
+                  : voiceInput.isRecording
+                    ? '停止'
+                    : '語音輸入'}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -119,7 +248,23 @@ function KnowledgeChatPage() {
               {isFetching ? '檢查中…' : '重新檢查服務'}
             </Button>
           </div>
+          {speechUsable ? (
+            <p className="text-xs text-muted-foreground">
+              語音輸入建議使用 Chrome／Edge（WebM
+              Opus）。Safari 錄音格式可能無法辨識。
+            </p>
+          ) : null}
         </form>
+        {voiceInput.error ? (
+          <p className="text-sm text-destructive" role="alert">
+            {voiceInput.error}
+          </p>
+        ) : null}
+        {voiceError ? (
+          <p className="text-sm text-destructive" role="alert">
+            {voiceError}
+          </p>
+        ) : null}
       </section>
 
       <section
@@ -166,14 +311,36 @@ function KnowledgeChatPage() {
         <section aria-labelledby="answer-heading">
           <Card className="border-border bg-muted/40">
             <CardHeader className="pb-2">
-              <h2
-                id="answer-heading"
-                className="font-heading text-base leading-snug font-medium"
-              >
-                回答
-              </h2>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <h2
+                  id="answer-heading"
+                  className="font-heading text-base leading-snug font-medium"
+                >
+                  回答
+                </h2>
+                {speechUsable && answer && !loading ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={ttsBusy}
+                    aria-label={ttsPlaying ? '停止朗讀' : '朗讀回答'}
+                    aria-pressed={ttsPlaying}
+                    onClick={() => void onReadAloudClick()}
+                    className="shrink-0 gap-1.5"
+                  >
+                    <Volume2 className="size-3.5" aria-hidden />
+                    {ttsBusy ? '合成中…' : ttsPlaying ? '停止' : '朗讀'}
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent className="pt-0">
+              {ttsError ? (
+                <p className="mb-2 text-sm text-destructive" role="alert">
+                  {ttsError}
+                </p>
+              ) : null}
               <div aria-live="polite" className="min-h-[4.75rem]">
                 {!answer && loading ? (
                   <p className="text-sm text-muted-foreground">
