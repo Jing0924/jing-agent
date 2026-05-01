@@ -84,7 +84,12 @@ function KnowledgeChatPage() {
         const blob = await voiceInput.stopRecording()
         if (blob && blob.size > 0) {
           const { transcript } = await uploadAudioForTranscript(blob)
-          setQuestion(transcript.trim())
+          const trimmed = transcript.trim()
+          if (trimmed) {
+            void askWithText(trimmed)
+          } else {
+            setVoiceError('未辨識到語音內容，請再試一次。')
+          }
         }
       } catch (e) {
         setVoiceError(e instanceof Error ? e.message : '語音轉文字失敗。')
@@ -218,7 +223,7 @@ function KnowledgeChatPage() {
                 size="lg"
                 disabled={loading || voiceBusy}
                 aria-label={
-                  voiceInput.isRecording ? '停止錄音並轉成文字' : '開始語音輸入'
+                  voiceInput.isRecording ? '停止錄音並送出問題' : '開始語音輸入'
                 }
                 aria-pressed={voiceInput.isRecording}
                 onClick={() => void onMicClick()}
@@ -234,7 +239,7 @@ function KnowledgeChatPage() {
                     ? '辨識中…'
                     : '啟動中…'
                   : voiceInput.isRecording
-                    ? '停止'
+                    ? '停止並送出'
                     : '語音輸入'}
               </Button>
             ) : null}
@@ -250,7 +255,7 @@ function KnowledgeChatPage() {
           </div>
           {speechUsable ? (
             <p className="text-xs text-muted-foreground">
-              語音輸入建議使用 Chrome／Edge（WebM
+              停止錄音後會自動送出問題。語音輸入建議使用 Chrome／Edge（WebM
               Opus）。Safari 錄音格式可能無法辨識。
             </p>
           ) : null}
