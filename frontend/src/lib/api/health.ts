@@ -6,6 +6,7 @@ export type HealthPayload = {
   prompt_sha256?: string
   llm_model?: string
   speech_enabled?: boolean
+  gemini_tts_available?: boolean
 }
 
 export async function fetchHealth(): Promise<HealthPayload> {

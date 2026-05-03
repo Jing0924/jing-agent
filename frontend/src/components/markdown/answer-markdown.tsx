@@ -62,7 +62,7 @@ export function AnswerMarkdown({ content, className }: Props) {
   return (
     <div
       className={cn(
-        'space-y-2 break-words text-[0.95rem] leading-relaxed text-card-foreground',
+        'max-w-full space-y-2 overflow-hidden break-words text-[0.95rem] leading-relaxed text-card-foreground',
         className,
       )}
     >

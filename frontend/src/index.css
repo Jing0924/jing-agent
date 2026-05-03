@@ -142,11 +142,18 @@
   max-width: 56rem;
   margin: 0 auto;
   text-align: inherit;
-  border-inline: 1px solid var(--border);
+  border-inline: none;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 640px) {
+  #root {
+    border-inline: 1px solid var(--border);
+  }
 }
 
 body {

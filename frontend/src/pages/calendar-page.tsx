@@ -167,7 +167,8 @@ function CalendarPage() {
             </summary>
             <div
               className={cn(
-                'absolute right-0 z-10 mt-2 max-h-[min(70vh,32rem)] w-[min(calc(100vw-2rem),24rem)] overflow-y-auto',
+                'absolute right-0 z-10 mt-2 max-h-[min(70vh,32rem)] overflow-y-auto',
+                'w-[min(calc(100vw-2rem-env(safe-area-inset-left,0px)-env(safe-area-inset-right,0px)),24rem)]',
                 'rounded-md border border-border/70 bg-muted/25 p-3 text-sm text-pretty text-muted-foreground shadow-sm',
               )}
               role="region"
@@ -317,7 +318,7 @@ function CalendarPage() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 shrink-0 px-0 text-muted-foreground hover:text-destructive"
+                      className="min-h-11 min-w-11 shrink-0 px-0 text-muted-foreground hover:text-destructive"
                       aria-label={`刪除「${row.summary}」`}
                       disabled={deletingId === row.id}
                       onClick={() => void handleDeleteListEvent(row)}
@@ -371,7 +372,7 @@ function CalendarPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-7 max-w-full rounded-full px-2.5 text-xs font-normal text-muted-foreground"
+                className="max-sm:min-h-9 h-7 max-w-full rounded-full px-2.5 text-xs font-normal text-muted-foreground"
                 title={sample}
                 disabled={calendarLoading || !calendarReady}
                 onClick={() => setCalendarText(sample)}

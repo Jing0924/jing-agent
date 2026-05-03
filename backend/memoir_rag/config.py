@@ -50,6 +50,16 @@ def speech_enabled() -> bool:
     return google_cloud_api_key() is not None
 
 
+def google_api_key_value() -> str | None:
+    """Gemini / Generative Language API 金鑰（與 Cloud TTS 金鑰分開）。"""
+    key = (os.environ.get("GOOGLE_API_KEY") or "").strip()
+    return key or None
+
+
+def gemini_tts_available() -> bool:
+    return google_api_key_value() is not None
+
+
 def override_fields() -> tuple[str, str]:
     employer = (os.environ.get("RESUME_EMPLOYER_OVERRIDE") or "").strip()
     title = (os.environ.get("RESUME_JOB_TITLE_OVERRIDE") or "").strip()
