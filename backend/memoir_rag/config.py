@@ -21,6 +21,22 @@ CHUNK_OVERLAP = 120
 EMBEDDING_MODEL = "gemini-embedding-001"
 LLM_MODEL = "gemini-2.5-flash-lite"
 
+_LLM_TEMP_DEFAULT = 0.45
+_LLM_TEMP_MIN = 0.0
+_LLM_TEMP_MAX = 1.0
+
+
+def llm_temperature() -> float:
+    """Sampling temperature for memoir RAG chat; clamped to [0, 1]; from MEMOIR_LLM_TEMPERATURE."""
+    raw = (os.environ.get("MEMOIR_LLM_TEMPERATURE") or "").strip()
+    if not raw:
+        return _LLM_TEMP_DEFAULT
+    try:
+        t = float(raw)
+    except ValueError:
+        return _LLM_TEMP_DEFAULT
+    return max(_LLM_TEMP_MIN, min(_LLM_TEMP_MAX, t))
+
 
 def load_env() -> None:
     repo_root = PROJECT_ROOT.parent

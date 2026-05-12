@@ -22,6 +22,7 @@ from memoir_rag.config import (
     LLM_MODEL,
     PROJECT_ROOT,
     knowledge_fingerprint_bytes,
+    llm_temperature,
     override_fields,
     require_google_api_key,
     resolve_knowledge_md_paths,
@@ -173,7 +174,7 @@ def build_resume_rag_chain(knowledge_paths: Sequence[Path] | None = None) -> Res
     embeddings = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
     vectorstore = build_or_load_chroma(all_docs, embeddings, fingerprint, pd)
 
-    llm = ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0, streaming=True)
+    llm = ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=llm_temperature(), streaming=True)
 
     prompt = ChatPromptTemplate.from_messages(
         [
