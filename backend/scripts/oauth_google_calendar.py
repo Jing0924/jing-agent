@@ -14,6 +14,9 @@ Then from repo root or backend:
   cd backend && python scripts/oauth_google_calendar.py
 
 Paste the printed GOOGLE_CALENDAR_REFRESH_TOKEN=... into .env (never commit).
+
+Uses loopback HTTP for run_local_server; sets OAUTHLIB_INSECURE_TRANSPORT so
+OAuthLib allows the token exchange locally (setdefault — respects env if already set).
 """
 
 from __future__ import annotations
@@ -42,6 +45,8 @@ def main() -> None:
             file=sys.stderr,
         )
         sys.exit(1)
+
+    os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
     client_config = {
         "installed": {
