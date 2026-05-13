@@ -7,3 +7,7 @@ backend/.env
 __pycache__/
 *.py[cod]
 .cursor*
+
+# Large asset packs (FBX/source textures kept locally only)
+Inori-FBX-File-V1.1/
+.DS_Store
