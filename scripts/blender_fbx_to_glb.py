@@ -53,6 +53,10 @@ _EYE_ALPHA_CANDIDATES: tuple[str, ...] = (
     "Tex_Inori_FaceMask.png",
 )
 
+# Optional explicit bone names (Blender pose bone names) for idle upper-arm swing.
+# If empty, names are chosen by heuristic; if the rig does not match, add entries here.
+_IDLE_UPPER_ARM_BONE_NAMES: tuple[str, ...] = ()
+
 
 def _argv_after_dd() -> list[str]:
     if "--" not in sys.argv:
@@ -175,6 +179,139 @@ def apply_inori_materials(textures_dir: Path, body_variant: str) -> None:
             print(f"[blender_fbx_to_glb] WARN: skipped {mat.name}: {e}", flush=True)
 
 
+def _idle_upper_arm_pose_bones(arm_ob: bpy.types.Object) -> list[bpy.types.PoseBone]:
+    if _IDLE_UPPER_ARM_BONE_NAMES:
+        out: list[bpy.types.PoseBone] = []
+        for name in _IDLE_UPPER_ARM_BONE_NAMES:
+            pb = arm_ob.pose.bones.get(name)
+            if pb is None:
+                print(f"[blender_fbx_to_glb] WARN: idle bone {name!r} not found on armature", flush=True)
+            else:
+                out.append(pb)
+        return out
+
+    out = []
+    for pb in arm_ob.pose.bones:
+        n = pb.name.lower()
+        if "twist" in n or "forearm" in n:
+            continue
+        if "upperarm" in n or "upper_arm" in n or "arm_stretch" in n:
+            out.append(pb)
+    return out
+
+
+def _idle_arm_sign(bone_name: str) -> float:
+    """Flip swing direction for left vs right limbs (heuristic)."""
+    n = bone_name.lower()
+    if n.endswith(".l") or n.endswith("_l") or "left" in n:
+        return -1.0
+    if n.endswith(".r") or n.endswith("_r") or "right" in n:
+        return 1.0
+    return 1.0
+
+
+def _bezify_action(action: bpy.types.Action) -> None:
+    curves = []
+    legacy = getattr(action, "fcurves", None)
+    if legacy:
+        curves.extend(list(legacy))
+    elif getattr(action, "is_action_layered", False):
+        for layer in action.layers:
+            for strip in layer.strips:
+                if getattr(strip, "type", "") != "KEYFRAME":
+                    continue
+                for bag in strip.channelbags:
+                    curves.extend(list(bag.fcurves))
+    for fc in curves:
+        for kp in fc.keyframe_points:
+            kp.interpolation = "BEZIER"
+
+
+def ensure_idle_arm_loop() -> None:
+    """Create a short looping skeletal clip `Idle` (upper arms only, no shape keys)."""
+    from mathutils import Euler, Quaternion  # type: ignore
+
+    arm_ob = next((o for o in bpy.data.objects if o.type == "ARMATURE"), None)
+    if arm_ob is None:
+        print("[blender_fbx_to_glb] WARN: no armature found; skipping Idle action", flush=True)
+        return
+
+    candidates = _idle_upper_arm_pose_bones(arm_ob)
+    if not candidates:
+        sample = ", ".join(pb.name for pb in list(arm_ob.pose.bones)[:24])
+        print(
+            "[blender_fbx_to_glb] WARN: no upper-arm bones matched idle heuristic; skipping Idle.",
+            flush=True,
+        )
+        print(f"[blender_fbx_to_glb] WARN: first pose bones ({len(arm_ob.pose.bones)}): {sample}", flush=True)
+        return
+
+    fps = 60
+    bpy.context.scene.render.fps = fps
+    f0, f1, f2 = 1, 90, 180
+    bpy.context.scene.frame_start = f0
+    bpy.context.scene.frame_end = f2
+    swing = 0.055  # radians; small shoulder-style swing
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    arm_ob.select_set(True)
+    bpy.context.view_layer.objects.active = arm_ob
+    bpy.ops.object.mode_set(mode="POSE")
+    bpy.ops.pose.select_all(action="DESELECT")
+
+    if arm_ob.animation_data is None:
+        arm_ob.animation_data_create()
+    elif arm_ob.animation_data.action:
+        old = arm_ob.animation_data.action
+        arm_ob.animation_data.action = None
+        if old and old.users == 0:
+            bpy.data.actions.remove(old)
+
+    for act in list(bpy.data.actions):
+        if act.name == "Idle" and act.users == 0:
+            bpy.data.actions.remove(act)
+
+    action = bpy.data.actions.new(name="Idle")
+    arm_ob.animation_data.action = action
+
+    sign_by_bone = {pb.name: _idle_arm_sign(pb.name) for pb in candidates}
+
+    for pb in candidates:
+        sign = sign_by_bone[pb.name]
+        if pb.rotation_mode == "QUATERNION":
+            base = pb.rotation_quaternion.copy()
+            mid = (base @ Quaternion((1.0, 0.0, 0.0), sign * swing)).normalized()
+            pb.rotation_quaternion = base
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=f0)
+            pb.rotation_quaternion = mid
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=f1)
+            pb.rotation_quaternion = base
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=f2)
+        else:
+            base = pb.rotation_euler.copy()
+            mid = Euler(
+                (
+                    base.x + sign * swing * 0.25,
+                    base.y + sign * swing * 0.65,
+                    base.z + sign * swing * 0.2,
+                ),
+                order=pb.rotation_mode if pb.rotation_mode != "QUATERNION" else "XYZ",
+            )
+            pb.rotation_euler = base
+            pb.keyframe_insert(data_path="rotation_euler", frame=f0)
+            pb.rotation_euler = mid
+            pb.keyframe_insert(data_path="rotation_euler", frame=f1)
+            pb.rotation_euler = base
+            pb.keyframe_insert(data_path="rotation_euler", frame=f2)
+
+    _bezify_action(action)
+    bpy.context.scene.frame_set(f0)
+    bpy.ops.pose.select_all(action="SELECT")
+    bpy.ops.pose.transforms_clear()
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
 def main() -> None:
     args = _argv_after_dd()
     if len(args) < 2:
@@ -194,6 +331,7 @@ def main() -> None:
     bpy.ops.import_scene.fbx(filepath=str(fbx_path))
 
     apply_inori_materials(textures_dir, body_variant)
+    ensure_idle_arm_loop()
 
     report_path = out_path.with_name(f"{out_path.stem}.shapekeys.json")
     shapes: dict[str, list[str]] = {}

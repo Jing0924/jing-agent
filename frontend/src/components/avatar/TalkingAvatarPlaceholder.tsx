@@ -1,7 +1,8 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Center, OrbitControls, useGLTF } from '@react-three/drei'
+import { Center, OrbitControls, useAnimations, useGLTF } from '@react-three/drei'
 import type { Mesh } from 'three'
+import { LoopRepeat } from 'three'
 
 import { AVATAR_GLB_URL } from './avatar-config'
 import { AvatarErrorBoundary } from './AvatarErrorBoundary'
@@ -66,10 +67,27 @@ function FallbackSpinner() {
 }
 
 function Avatar({ url }: { url: string }) {
-  const { scene } = useGLTF(url)
+  const { scene, animations } = useGLTF(url)
+  const { actions } = useAnimations(animations, scene)
   const morphsRef = useRef<MorphTargets>(EMPTY_MORPHS)
   const blinkValueRef = useRef(0)
   const blinkTargetRef = useRef(0)
+
+  useEffect(() => {
+    if (!animations.length) return
+
+    const idleAction =
+      actions['Idle'] ??
+      actions['idle'] ??
+      (animations[0] ? actions[animations[0].name] : undefined)
+    if (!idleAction) return
+
+    idleAction.reset().setLoop(LoopRepeat, Infinity).fadeIn(0.42).play()
+    return () => {
+      idleAction.fadeOut(0.32)
+      idleAction.stop()
+    }
+  }, [animations, actions, scene])
 
   useEffect(() => {
     const jaw = findMorph(scene, 'jawOpen')
