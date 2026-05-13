@@ -1,5 +1,13 @@
 import type { FormEvent, MouseEvent } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import {
   AlertTriangle,
@@ -15,6 +23,8 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AnswerMarkdown } from '@/components/markdown/answer-markdown'
+import { INORI_AVATAR_GLB_URL } from '@/components/avatar/avatar-config'
+import { startLipSyncLoop } from '@/components/avatar/audio-mouth-level'
 import { useAskStream } from '@/hooks/use-ask-stream'
 import { useHealth } from '@/hooks/use-health'
 import { useVoiceInput } from '@/hooks/use-voice-input'
@@ -26,6 +36,10 @@ import {
   type TtsEngine,
 } from '@/lib/api/speech'
 import { cn } from '@/lib/utils'
+
+const TalkingAvatarLazy = lazy(
+  () => import('@/components/avatar/TalkingAvatarPlaceholder'),
+)
 
 const VOICE_CONVERSATION_STORAGE_KEY = 'knowledge-chat-voice-conversation'
 const TTS_ENGINE_STORAGE_KEY = 'knowledge-chat-tts-engine'
@@ -121,10 +135,19 @@ function KnowledgeChatPage() {
 
   const geminiStreamAbortRef = useRef<AbortController | null>(null)
   const geminiCtxRef = useRef<AudioContext | null>(null)
+  const geminiMixGainRef = useRef<GainNode | null>(null)
+  const geminiAnalyserRef = useRef<AnalyserNode | null>(null)
   const geminiSourcesRef = useRef<AudioBufferSourceNode[]>([])
   const geminiNextScheduleRef = useRef(0)
   const geminiPlaybackPendingRef = useRef(0)
   const geminiStreamDoneRef = useRef(false)
+
+  const cloudAudioCtxRef = useRef<AudioContext | null>(null)
+  const cloudAudioGraphRef = useRef<{
+    source: MediaElementAudioSourceNode
+    analyser: AnalyserNode
+  } | null>(null)
+  const lipSyncTeardownRef = useRef<(() => void) | null>(null)
 
   const getGeminiAudioContext = useCallback(() => {
     if (!geminiCtxRef.current) {
@@ -139,7 +162,27 @@ function KnowledgeChatPage() {
     return geminiCtxRef.current
   }, [])
 
+  const ensureGeminiOutputChain = useCallback((ctx: AudioContext) => {
+    if (!geminiMixGainRef.current) {
+      const gain = ctx.createGain()
+      gain.gain.value = 1
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 2048
+      gain.connect(analyser)
+      analyser.connect(ctx.destination)
+      geminiMixGainRef.current = gain
+      geminiAnalyserRef.current = analyser
+    }
+  }, [])
+
+  const stopLipSyncPlayback = useCallback(() => {
+    lipSyncTeardownRef.current?.()
+    lipSyncTeardownRef.current = null
+  }, [])
+
   const stopTts = useCallback(() => {
+    stopLipSyncPlayback()
+
     geminiStreamAbortRef.current?.abort()
     geminiStreamAbortRef.current = null
     geminiStreamDoneRef.current = false
@@ -157,17 +200,33 @@ function KnowledgeChatPage() {
     const a = audioRef.current
     if (a) {
       a.pause()
-      audioRef.current = null
     }
+
+    const cg = cloudAudioGraphRef.current
+    if (cg) {
+      try {
+        cg.source.disconnect()
+        cg.analyser.disconnect()
+      } catch {
+        /* ignore */
+      }
+      cloudAudioGraphRef.current = null
+    }
+
+    audioRef.current = null
+
     if (ttsUrlRef.current) {
       URL.revokeObjectURL(ttsUrlRef.current)
       ttsUrlRef.current = null
     }
     setTtsPlaying(false)
-  }, [])
+  }, [stopLipSyncPlayback])
 
   useEffect(() => {
     return () => {
+      lipSyncTeardownRef.current?.()
+      lipSyncTeardownRef.current = null
+
       geminiStreamAbortRef.current?.abort()
       for (const s of geminiSourcesRef.current) {
         try {
@@ -179,6 +238,22 @@ function KnowledgeChatPage() {
       geminiSourcesRef.current = []
       void geminiCtxRef.current?.close().catch(() => {})
       geminiCtxRef.current = null
+      geminiMixGainRef.current = null
+      geminiAnalyserRef.current = null
+
+      const cg = cloudAudioGraphRef.current
+      if (cg) {
+        try {
+          cg.source.disconnect()
+          cg.analyser.disconnect()
+        } catch {
+          /* ignore */
+        }
+        cloudAudioGraphRef.current = null
+      }
+      void cloudAudioCtxRef.current?.close().catch(() => {})
+      cloudAudioCtxRef.current = null
+
       const a = audioRef.current
       if (a) a.pause()
       if (ttsUrlRef.current) URL.revokeObjectURL(ttsUrlRef.current)
@@ -238,8 +313,30 @@ function KnowledgeChatPage() {
             setTtsError('無法播放語音。')
             stopTts()
           }
-          await audio.play()
-          setTtsPlaying(true)
+
+          try {
+            const ctx = cloudAudioCtxRef.current ?? new AudioContext()
+            cloudAudioCtxRef.current = ctx
+            await ctx.resume()
+
+            const source = ctx.createMediaElementSource(audio)
+            const analyser = ctx.createAnalyser()
+            analyser.fftSize = 2048
+            source.connect(analyser)
+            analyser.connect(ctx.destination)
+            cloudAudioGraphRef.current = { source, analyser }
+
+            lipSyncTeardownRef.current?.()
+            lipSyncTeardownRef.current = startLipSyncLoop(analyser)
+
+            await audio.play()
+            setTtsPlaying(true)
+          } catch (ae) {
+            stopTts()
+            setTtsError(
+              ae instanceof Error ? ae.message : '無法建立語音播放或嘴型分析。',
+            )
+          }
         } catch (e) {
           stopTts()
           setTtsError(e instanceof Error ? e.message : '語音合成失敗。')
@@ -258,8 +355,11 @@ function KnowledgeChatPage() {
       try {
         const ctx = getGeminiAudioContext()
         await ctx.resume()
+        ensureGeminiOutputChain(ctx)
 
         geminiNextScheduleRef.current = ctx.currentTime
+
+        const mixOut = geminiMixGainRef.current
 
         await synthesizeGeminiSpeechStream(text, {
           signal: ac.signal,
@@ -269,6 +369,11 @@ function KnowledgeChatPage() {
               heardPcm = true
               setTtsBusy(false)
               setTtsPlaying(true)
+              const analyser = geminiAnalyserRef.current
+              if (analyser) {
+                lipSyncTeardownRef.current?.()
+                lipSyncTeardownRef.current = startLipSyncLoop(analyser)
+              }
             }
 
             const int16 = new Int16Array(pcm)
@@ -285,7 +390,11 @@ function KnowledgeChatPage() {
 
             const src = ctx.createBufferSource()
             src.buffer = abuf
-            src.connect(ctx.destination)
+            if (mixOut) {
+              src.connect(mixOut)
+            } else {
+              src.connect(ctx.destination)
+            }
 
             const scheduleFrom = Math.max(
               geminiNextScheduleRef.current,
@@ -309,6 +418,7 @@ function KnowledgeChatPage() {
                 geminiStreamDoneRef.current &&
                 geminiPlaybackPendingRef.current <= 0
               ) {
+                stopLipSyncPlayback()
                 setTtsPlaying(false)
               }
             }
@@ -316,8 +426,10 @@ function KnowledgeChatPage() {
         })
 
         geminiStreamDoneRef.current = true
-        if (geminiPlaybackPendingRef.current <= 0 && heardPcm)
+        if (geminiPlaybackPendingRef.current <= 0 && heardPcm) {
+          stopLipSyncPlayback()
           setTtsPlaying(false)
+        }
       } catch (e) {
         const aborted =
           ac.signal.aborted ||
@@ -337,7 +449,14 @@ function KnowledgeChatPage() {
         if (!heardPcm) setTtsBusy(false)
       }
     },
-    [ttsUsable, effectiveTtsEngine, stopTts, getGeminiAudioContext],
+    [
+      ttsUsable,
+      effectiveTtsEngine,
+      stopTts,
+      getGeminiAudioContext,
+      ensureGeminiOutputChain,
+      stopLipSyncPlayback,
+    ],
   )
 
   useEffect(() => {
@@ -851,13 +970,28 @@ function KnowledgeChatPage() {
                 </p>
               ) : null}
               <div aria-live="polite" className="min-h-[4.75rem]">
-                {!answer && loading ? (
-                  <p className="text-sm text-muted-foreground">
-                    產生中，請稍候…
-                  </p>
-                ) : (
-                  <AnswerMarkdown content={answer} />
-                )}
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+                  <div className="min-w-0 flex-1">
+                    {!answer && loading ? (
+                      <p className="text-sm text-muted-foreground">
+                        產生中，請稍候…
+                      </p>
+                    ) : (
+                      <AnswerMarkdown content={answer} />
+                    )}
+                  </div>
+                  <div className="mx-auto w-full max-w-[min(100%,22rem)] shrink-0 lg:mx-0 lg:w-[min(100%,20rem)]">
+                    <Suspense
+                      fallback={
+                        <div className="flex h-[280px] items-center justify-center rounded-md border border-border bg-muted/30 text-sm text-muted-foreground lg:h-[360px]">
+                          載入頭像…
+                        </div>
+                      }
+                    >
+                      <TalkingAvatarLazy glbUrl={INORI_AVATAR_GLB_URL} />
+                    </Suspense>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
