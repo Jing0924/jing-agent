@@ -66,7 +66,13 @@ function FallbackSpinner() {
   )
 }
 
-function Avatar({ url }: { url: string }) {
+function Avatar({
+  url,
+  preferredClipName,
+}: {
+  url: string
+  preferredClipName?: string
+}) {
   const { scene, animations } = useGLTF(url)
   const { actions } = useAnimations(animations, scene)
   const morphsRef = useRef<MorphTargets>(EMPTY_MORPHS)
@@ -76,18 +82,21 @@ function Avatar({ url }: { url: string }) {
   useEffect(() => {
     if (!animations.length) return
 
-    const idleAction =
-      actions['Idle'] ??
-      actions['idle'] ??
+    const clip =
+      (preferredClipName ? actions[preferredClipName] : undefined) ??
+      actions.Main ??
+      actions.main ??
+      actions.Idle ??
+      actions.idle ??
       (animations[0] ? actions[animations[0].name] : undefined)
-    if (!idleAction) return
+    if (!clip) return
 
-    idleAction.reset().setLoop(LoopRepeat, Infinity).fadeIn(0.42).play()
+    clip.reset().setLoop(LoopRepeat, Infinity).fadeIn(0.42).play()
     return () => {
-      idleAction.fadeOut(0.32)
-      idleAction.stop()
+      clip.fadeOut(0.32)
+      clip.stop()
     }
-  }, [animations, actions, scene])
+  }, [animations, actions, preferredClipName, scene])
 
   useEffect(() => {
     const jaw = findMorph(scene, 'jawOpen')
@@ -166,7 +175,13 @@ function Avatar({ url }: { url: string }) {
 }
 
 /** Remount when `url` changes so load-error state resets without an effect. */
-function TalkingAvatarCanvas({ url }: { url: string }) {
+function TalkingAvatarCanvas({
+  url,
+  preferredClipName,
+}: {
+  url: string
+  preferredClipName?: string
+}) {
   const [loadError, setLoadError] = useState<Error | null>(null)
 
   const hintText = loadError
@@ -186,7 +201,7 @@ function TalkingAvatarCanvas({ url }: { url: string }) {
           fallback={() => <FallbackSpinner />}
         >
           <Suspense fallback={<FallbackSpinner />}>
-            <Avatar url={url} />
+            <Avatar url={url} preferredClipName={preferredClipName} />
           </Suspense>
         </AvatarErrorBoundary>
         <OrbitControls
@@ -206,8 +221,11 @@ function TalkingAvatarCanvas({ url }: { url: string }) {
 
 export function TalkingAvatarPlaceholder({
   glbUrl,
+  animationClipName,
 }: {
   glbUrl?: string
+  /** When set, try this clip name before Main / Idle / first clip. */
+  animationClipName?: string
 } = {}) {
   const url = glbUrl ?? AVATAR_GLB_URL
 
@@ -215,7 +233,13 @@ export function TalkingAvatarPlaceholder({
     void useGLTF.preload(url)
   }, [url])
 
-  return <TalkingAvatarCanvas key={url} url={url} />
+  return (
+    <TalkingAvatarCanvas
+      key={url}
+      url={url}
+      preferredClipName={animationClipName}
+    />
+  )
 }
 
 export default TalkingAvatarPlaceholder

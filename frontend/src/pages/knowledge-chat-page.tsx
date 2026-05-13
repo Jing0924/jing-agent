@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AnswerMarkdown } from '@/components/markdown/answer-markdown'
-import { INORI_AVATAR_GLB_URL } from '@/components/avatar/avatar-config'
+import { INORI_AVATAR_PRESETS } from '@/components/avatar/avatar-presets'
 import { startLipSyncLoop } from '@/components/avatar/audio-mouth-level'
 import { useAskStream } from '@/hooks/use-ask-stream'
 import { useHealth } from '@/hooks/use-health'
@@ -71,6 +71,16 @@ const INTERVIEW_QUICK_QUESTIONS = [
 ] as const
 
 function KnowledgeChatPage() {
+  const [inoriPresetId, setInoriPresetId] = useState(
+    INORI_AVATAR_PRESETS[0].id,
+  )
+  const inoriGlbUrl = useMemo(
+    () =>
+      INORI_AVATAR_PRESETS.find((p) => p.id === inoriPresetId)?.glbUrl ??
+      INORI_AVATAR_PRESETS[0].glbUrl,
+    [inoriPresetId],
+  )
+
   const { data: health, isError, isFetching, refetch } = useHealth()
   const healthError = isError
     ? '無法連線至後端（確認已執行 uvicorn 於 127.0.0.1:8000）。'
@@ -981,6 +991,22 @@ function KnowledgeChatPage() {
                     )}
                   </div>
                   <div className="mx-auto w-full max-w-[min(100%,22rem)] shrink-0 lg:mx-0 lg:w-[min(100%,20rem)]">
+                    <label className="mb-2 flex flex-col gap-1 text-sm text-muted-foreground">
+                      <span className="text-card-foreground">頭像動作</span>
+                      <select
+                        id="inori-avatar-preset"
+                        value={inoriPresetId}
+                        disabled={loading}
+                        onChange={(e) => setInoriPresetId(e.target.value)}
+                        className="h-10 min-h-10 w-full rounded-md border border-input bg-background px-2 py-1 text-sm text-card-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {INORI_AVATAR_PRESETS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <Suspense
                       fallback={
                         <div className="flex h-[280px] items-center justify-center rounded-md border border-border bg-muted/30 text-sm text-muted-foreground lg:h-[360px]">
@@ -988,7 +1014,10 @@ function KnowledgeChatPage() {
                         </div>
                       }
                     >
-                      <TalkingAvatarLazy glbUrl={INORI_AVATAR_GLB_URL} />
+                      <TalkingAvatarLazy
+                        key={inoriGlbUrl}
+                        glbUrl={inoriGlbUrl}
+                      />
                     </Suspense>
                   </div>
                 </div>
